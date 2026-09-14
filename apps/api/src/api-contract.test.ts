@@ -144,6 +144,22 @@ describe("API authorization and builder contracts", () => {
     expect(responses).toEqual(Array.from({ length: 30 }, () => 200));
   });
 
+  it("persists the registration name and returns it to the workspace", async () => {
+    const createdAt = new Date("2026-09-14T10:00:00.000Z");
+    models.User.exists.mockResolvedValue(undefined);
+    models.User.create.mockResolvedValue({ _id: { toString: () => OWNER_ID }, name: "Ada Lovelace", email: "ada@example.com", createdAt });
+
+    const { response, body } = await request(baseUrl, "/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ name: "  Ada   Lovelace ", email: "ada@example.com", password: "a-secure-password" })
+    });
+    const user = body as unknown as { user: { name: string } };
+
+    expect(response.status).toBe(201);
+    expect(models.User.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Ada Lovelace", email: "ada@example.com" }));
+    expect(user.user.name).toBe("Ada Lovelace");
+  });
+
   it("returns latest weighted flashcard confidence in the user-scoped dashboard", async () => {
     models.Kit.find.mockReturnValue(query([fixtureKit()]));
     models.PracticeProgress.find.mockReturnValue(query([{

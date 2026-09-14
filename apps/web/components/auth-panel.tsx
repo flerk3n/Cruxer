@@ -18,12 +18,13 @@ export function AuthPanel({ mode }: { mode: "login" | "register" }) {
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") ?? "");
     const email = String(form.get("email") ?? "");
     const password = String(form.get("password") ?? "");
     setError(null);
     setSubmitting(true);
     try {
-      if (creating) await api.register({ email, password });
+      if (creating) await api.register({ name, email, password });
       else await api.login({ email, password });
       router.replace("/dashboard");
       router.refresh();

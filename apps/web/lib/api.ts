@@ -25,7 +25,7 @@ type ApiErrorBody = {
   error?: { code?: string; message?: string; requestId?: string; details?: unknown };
 };
 
-export type User = { id: string; email: string; createdAt: string };
+export type User = { id: string; name: string; email: string; createdAt: string };
 export type AuthResponse = { user: User };
 export type KitStatus = "draft" | "generating" | "ready" | "failed";
 export type KitSummary = {
@@ -191,7 +191,7 @@ function patch(body: unknown): RequestInit {
 }
 
 export const api = {
-  register: (input: { email: string; password: string }) => request<AuthResponse>("/auth/register", json(input)),
+  register: (input: { name: string; email: string; password: string }) => request<AuthResponse>("/auth/register", json(input)),
   login: (input: { email: string; password: string }) => request<AuthResponse>("/auth/login", json(input)),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   session: () => request<AuthResponse>("/auth/session"),

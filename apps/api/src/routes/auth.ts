@@ -12,6 +12,9 @@ const credentialsSchema = z.object({
   email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
   password: z.string().min(12, "Password must be at least 12 characters.").max(128)
 }).strict();
+const registrationSchema = credentialsSchema.extend({
+  name: z.string().trim().min(1, "Enter your name.").max(80).transform((value) => value.replace(/\s+/g, " "))
+}).strict();
 
 // Session reads are performed whenever the dashboard loads and must not be
 // counted as credential guesses. Keep one shared bucket for the two endpoints
@@ -23,11 +26,11 @@ export function createAuthRouter(config: AppConfig): Router {
 
   router.post("/register", credentialRateLimit, async (req, res, next) => {
     try {
-      const { email, password } = credentialsSchema.parse(req.body);
+      const { name, email, password } = registrationSchema.parse(req.body);
       const existing = await User.exists({ email });
       if (existing) throw new ApiError(409, "EMAIL_IN_USE", "An account with that email already exists.");
 
-      const user = await User.create({ email, passwordHash: await hashPassword(password, config.BCRYPT_ROUNDS) });
+      const user = await User.create({ name, email, passwordHash: await hashPassword(password, config.BCRYPT_ROUNDS) });
       setSessionCookie(res, issueSession({ id: user._id.toString(), email: user.email }, config), config);
       res.status(201).json({ user: serializeUser(user) });
     } catch (error) {
@@ -70,6 +73,6 @@ export function createAuthRouter(config: AppConfig): Router {
   return router;
 }
 
-function serializeUser(user: { _id: { toString(): string }; email: string; createdAt: Date }): { id: string; email: string; createdAt: string } {
-  return { id: user._id.toString(), email: user.email, createdAt: user.createdAt.toISOString() };
+function serializeUser(user: { _id: { toString(): string }; name?: string; email: string; createdAt: Date }): { id: string; name: string; email: string; createdAt: string } {
+  return { id: user._id.toString(), name: user.name?.trim() || user.email.split("@")[0] || "there", email: user.email, createdAt: user.createdAt.toISOString() };
 }

@@ -1,6 +1,7 @@
 import mongoose, { HydratedDocument, type Model, Schema, model } from "mongoose";
 
 export interface UserRecord {
+  name?: string;
   email: string;
   passwordHash: string;
   createdAt: Date;
@@ -9,6 +10,7 @@ export interface UserRecord {
 
 const userSchema = new Schema<UserRecord>(
   {
+    name: { type: String, required: false, trim: true, maxlength: 80 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, maxlength: 320 },
     passwordHash: { type: String, required: true, select: false }
   },

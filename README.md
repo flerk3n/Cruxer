@@ -341,14 +341,6 @@ git diff --check
 
 The test suite covers Appendix A structure validation, stable id/reference invariants, coverage correction and deterministic fallback, schedule allocation including 1 and 60 days, robots/safe retrieval primitives, public-discussion warnings, Gemini pacing/retry/schema repair, evaluator failure isolation, ownership, revision conflicts, brief persistence, scoped regeneration, and practice scoring.
 
-For the required 3–4 minute walkthrough, demonstrate:
-
-1. A pasted JD + company URL flowing through visible research/generation stages.
-2. The role evidence, retrieved company/public discussion sources, and a coverage correction/fallback outcome.
-3. Inline question edit/reorder plus category regeneration preserving the edited/pinned question.
-4. Flashcard reveal/confidence, lowest-confidence-first ordering, and the exact-day schedule.
-5. The Readiness Runway and why its cross-kit study-effort view is useful.
-
 ## Reference sources
 
 - [Gemini structured output](https://ai.google.dev/gemini-api/docs/structured-output)

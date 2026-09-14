@@ -28,7 +28,8 @@ import { useGSAP } from "@gsap/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
-import { api, apiErrorMessage, CruxerApiError, type KitDocument, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
+import { ReadinessRunway, type StudyDay } from "@/components/readiness-runway";
+import { api, apiErrorMessage, CruxerApiError, type KitActivity, type KitDocument, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(useGSAP);
@@ -121,6 +122,14 @@ const schedule = [
   { day: 5, focus: "Timed final practice", minutes: 55, questionIds: ["q1", "q5", "q6"] }
 ];
 
+function studyPlan(scheduleDays?: Array<{ day: number; focus: string; question_ids: string[]; minutes: number }>): StudyDay[] {
+  return scheduleDays?.map((day) => ({ ...day, questionIds: day.question_ids })) ?? schedule;
+}
+
+function browserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
 const categoryLabels: Record<Exclude<Category, "all">, string> = {
   technical: "Technical",
   behavioural: "Behavioural",
@@ -158,6 +167,10 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [revealed, setRevealed] = useState(false);
   const [flashcardIndex, setFlashcardIndex] = useState(0);
   const [reviewed, setReviewed] = useState(3);
+  const [practiceProgress, setPracticeProgress] = useState<PracticeProgress[]>([]);
+  const [activity, setActivity] = useState<KitActivity | null>();
+  const [activityError, setActivityError] = useState(false);
+  const [checkingIn, setCheckingIn] = useState(false);
   const [expandedDay, setExpandedDay] = useState(1);
 
   useGSAP(() => {
@@ -174,6 +187,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     [category, questions]
   );
   const activeFlashcard = cards[flashcardIndex] ?? cards[0]!;
+  const plan = useMemo(() => studyPlan(kitDocument?.kit?.schedule.days), [kitDocument?.kit?.schedule.days]);
 
   function applyRemote(next: KitDocument) {
     kitRef.current = next;
@@ -206,9 +220,26 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kitId]);
 
+  async function refreshActivity() {
+    try {
+      const next = await api.getActivity(kitId, { days: 35, timeZone: browserTimeZone() });
+      setActivity(next);
+      setActivityError(false);
+    } catch {
+      setActivityError(true);
+    }
+  }
+
+  useEffect(() => {
+    void refreshActivity();
+  // The route id remains stable while this builder is mounted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kitId]);
+
   useEffect(() => {
     void api.getPractice(kitId).then(({ progress }) => {
       setReviewed(progress.length);
+      setPracticeProgress(progress);
     }).catch(() => {
       // Practice remains usable during a transient API outage; the confidence
       // action will explain that it could only be recorded for this session.
@@ -322,12 +353,25 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     setFlashcardIndex((current) => (current + 1) % flashcards.length);
     try {
       if (!kitRef.current?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
-      const { kit } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3);
+      const { kit, progress } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
       applyRemote(kit);
+      setPracticeProgress((current) => [...current.filter((entry) => entry.flashcardId !== progress.flashcardId), progress]);
+      void refreshActivity();
       setNotice(`${label} recorded. Next card ready.`);
     } catch (cause) {
       setNotice(`${label} saved for this session. ${apiErrorMessage(cause)}`);
     }
+  }
+
+  async function checkIn() {
+    setCheckingIn(true);
+    try {
+      await api.checkIn(kitId, browserTimeZone());
+      await refreshActivity();
+      setNotice("Today’s intention is saved.");
+    } catch (cause) {
+      setNotice(`Could not save today’s check-in. ${apiErrorMessage(cause)}`);
+    } finally { setCheckingIn(false); }
   }
 
   async function deleteQuestion(questionId: string) {
@@ -392,7 +436,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
         {viewItems.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => setView(id)} className={cn("inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-colors lg:flex lg:w-full", view === id ? "bg-surface text-ink shadow-sm" : "text-muted-ink hover:bg-surface-raised hover:text-ink")} aria-current={view === id ? "page" : undefined}><Icon size={16} />{label}</button>)}
       </nav>
       <main className="min-w-0" aria-live="polite">
-        {view === "overview" && <Overview onOpenQuestions={() => setView("questions")} onOpenSchedule={() => setView("schedule")} requirements={kitDocument?.kit?.role.requirements ?? requirements} kit={kitDocument?.kit} />}
+        {view === "overview" && <Overview onOpenQuestions={() => setView("questions")} onOpenSchedule={(day) => { setExpandedDay(day); setView("schedule"); }} requirements={kitDocument?.kit?.role.requirements ?? requirements} kit={kitDocument?.kit} plan={plan} activity={activity} activityError={activityError} onCheckIn={checkIn} checkingIn={checkingIn} />}
         {view === "questions" && <QuestionsView
           category={category}
           editingId={editingId}
@@ -412,7 +456,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
           onRegenerate={setRegenerating}
         />}
         {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} revealed={revealed} reviewed={reviewed} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => { setFlashcardIndex(0); setReviewed(0); setRevealed(false); setNotice("Practice session restarted."); }} />}
-        {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} scheduleDays={kitDocument?.kit?.schedule.days} />}
+        {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} activity={activity} />}
       </main>
     </div>
 
@@ -423,11 +467,11 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   </div>;
 }
 
-function Overview({ onOpenQuestions, onOpenSchedule, requirements: liveRequirements, kit }: { onOpenQuestions: () => void; onOpenSchedule: () => void; requirements: Array<{ id: string; text: string; priority: string }>; kit?: KitDocument["kit"] }) {
+function Overview({ onOpenQuestions, onOpenSchedule, requirements: liveRequirements, kit, plan, activity, activityError, onCheckIn, checkingIn }: { onOpenQuestions: () => void; onOpenSchedule: (day: number) => void; requirements: Array<{ id: string; text: string; priority: string }>; kit?: KitDocument["kit"]; plan: StudyDay[]; activity?: KitActivity | null; activityError: boolean; onCheckIn: () => void; checkingIn: boolean }) {
   return <div className="space-y-8">
     <section><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">Company brief</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Product context, not guesswork.</h2></div></div><Card className="mt-4 p-5 sm:p-6"><p className="max-w-3xl text-[15px] leading-7">{kit?.company_brief.summary ?? "Atlas helps product teams turn complex customer signals into decisions. Its public materials consistently emphasise clear workflows, dependable collaboration, and shipping with confidence—useful cues for a senior frontend role with broad product ownership."}</p><div className="mt-6 grid gap-3 border-t pt-5 sm:grid-cols-2"><Insight title="What they do" text={kit?.company_brief.what_they_do ?? "Decision support for teams working across product, research, and customer feedback."} /><Insight title="Interview signal" text="Show judgment: technical depth that makes the team faster and the product clearer." /></div><div className="mt-5 flex flex-wrap gap-2" aria-label="Research sources">{(kit?.company_brief.sources ?? ["https://www.atlassian.com/company"]).slice(0, 3).map((href) => <Source key={href} href={href} label={new URL(href).hostname} />)}</div></Card></section>
-    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]"><Card className="p-5 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">Coverage</p><h2 className="mt-1 text-lg font-semibold">{liveRequirements.length} requirements mapped</h2></div><span className="inline-flex items-center gap-1.5 text-sm font-medium text-success"><CheckCircle2 size={17} />Complete</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full w-full rounded-full bg-success" /></div><ul className="mt-5 divide-y">{liveRequirements.map((requirement) => <li key={requirement.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="flex items-center gap-2"><Check size={15} className="text-success" />{requirement.text}</span><span className="shrink-0 font-mono text-[11px] text-muted-ink">{requirement.priority}</span></li>)}</ul><button type="button" onClick={onOpenQuestions} className="mt-4 inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Inspect mapped questions <ArrowRight size={15} /></button></Card>
-      <Card className="p-5 sm:p-6"><p className="eyebrow">Up next</p><h2 className="mt-1 text-lg font-semibold">Day 1 · 55 minutes</h2><p className="mt-3 text-sm leading-6 text-muted-ink">Role signals and React foundations. Start with the two must-have architecture questions.</p><div className="mt-6 flex items-center gap-2 text-sm"><Clock3 size={16} className="text-violet" />2 questions · 55 min</div><button type="button" onClick={onOpenSchedule} className="mt-4 inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">View study plan <ArrowRight size={15} /></button></Card></section>
+    <ReadinessRunway plan={plan} activity={activity} activityError={activityError} onOpenDay={onOpenSchedule} onCheckIn={onCheckIn} checkingIn={checkingIn} />
+    <section className="grid gap-4"><Card className="p-5 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">Coverage</p><h2 className="mt-1 text-lg font-semibold">{liveRequirements.length} requirements mapped</h2></div><span className="inline-flex items-center gap-1.5 text-sm font-medium text-success"><CheckCircle2 size={17} />Complete</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full w-full rounded-full bg-success" /></div><ul className="mt-5 divide-y">{liveRequirements.map((requirement) => <li key={requirement.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="flex items-center gap-2"><Check size={15} className="text-success" />{requirement.text}</span><span className="shrink-0 font-mono text-[11px] text-muted-ink">{requirement.priority}</span></li>)}</ul><button type="button" onClick={onOpenQuestions} className="mt-4 inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Inspect mapped questions <ArrowRight size={15} /></button></Card></section>
   </div>;
 }
 
@@ -462,9 +506,8 @@ function FlashcardsView({ card, index, revealed, reviewed, onReveal, onConfidenc
   return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2></div><span className="shrink-0 text-sm text-muted-ink">{reviewed} of 12 reviewed</span></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${Math.max(8, reviewed / 12 * 100)}%` }} /></div><Card className="mt-8 min-h-[26rem] p-6 sm:p-10"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{card.requirement}</span><span className="font-mono text-xs text-muted-ink">{index + 1} / {flashcards.length}</span></div><h3 className="editorial-title mt-10 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">{card.front}</h3>{revealed ? <div className="mt-9 border-t pt-6"><p className="text-xs font-medium text-muted-ink">Suggested answer</p><p className="mt-2 text-[15px] leading-7">{card.back}</p><div className="mt-8 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Use 1, 2, or 3 after revealing.</p></div> : <div className="mt-10"><p className="text-sm text-muted-ink">Take a moment before you reveal the answer.</p><Button className="mt-6" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button><p className="mt-3 text-xs text-muted-ink">Space to reveal</p></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></section>;
 }
 
-function ScheduleView({ expandedDay, onToggle, questions, scheduleDays }: { expandedDay: number; onToggle: (day: number) => void; questions: Question[]; scheduleDays?: Array<{ day: number; focus: string; question_ids: string[]; minutes: number }> }) {
-  const plan = scheduleDays?.map((day) => ({ ...day, questionIds: day.question_ids })) ?? schedule;
-  return <section><div><p className="eyebrow">Study plan</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Five days, with a clear next move.</h2><p className="mt-2 text-sm text-muted-ink">Each session starts with the must-have signals before the optional depth.</p></div><ol className="mt-7 space-y-3">{plan.map((day) => { const open = expandedDay === day.day; const sessionQuestions = day.questionIds.map((id) => questions.find((question) => question.id === id)).filter((question): question is Question => Boolean(question)); return <li key={day.day} className="relative pl-12"><span className={cn("absolute left-0 top-5 grid h-8 w-8 place-items-center rounded-full text-xs font-semibold", day.day === 1 ? "bg-signal text-white" : "bg-surface text-muted-ink ring-1 ring-line")}>D{day.day}</span>{day.day < plan.length && <span className="absolute left-4 top-12 h-[calc(100%+0.75rem)] border-l border-dashed" aria-hidden="true" />}<Card className={cn("overflow-hidden", day.day === 1 && "border-signal/40")}><button type="button" onClick={() => onToggle(open ? 0 : day.day)} className="flex min-h-16 w-full items-center justify-between gap-4 px-4 text-left sm:px-5" aria-expanded={open}><span><span className="block text-[15px] font-medium">{day.focus}</span><span className="mt-1 block text-xs text-muted-ink">{sessionQuestions.length} questions · {day.minutes} minutes</span></span>{open ? <ChevronUp size={18} className="text-muted-ink" /> : <ChevronDown size={18} className="text-muted-ink" />}</button>{open && <div className="border-t bg-canvas px-4 py-4 sm:px-5"><p className="text-xs font-medium text-muted-ink">Practice prompts</p><ul className="mt-3 space-y-2">{sessionQuestions.map((question) => <li key={question.id} className="flex gap-2 text-sm leading-6"><CircleHelp size={15} className="mt-1 shrink-0 text-violet" />{question.prompt}</li>)}</ul></div>}</Card></li>; })}</ol></section>;
+function ScheduleView({ expandedDay, onToggle, questions, plan, activity }: { expandedDay: number; onToggle: (day: number) => void; questions: Question[]; plan: StudyDay[]; activity?: KitActivity | null }) {
+  return <section><div><p className="eyebrow">Study plan</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{plan.length} days, with a clear next move.</h2><p className="mt-2 text-sm text-muted-ink">Each session starts with the must-have signals before the optional depth.</p></div><ReadinessRunway plan={plan} activity={activity} onOpenDay={onToggle} compact /><ol className="mt-7 space-y-3">{plan.map((day) => { const open = expandedDay === day.day; const sessionQuestions = day.questionIds.map((id) => questions.find((question) => question.id === id)).filter((question): question is Question => Boolean(question)); return <li key={day.day} className="relative pl-12"><span className={cn("absolute left-0 top-5 grid h-8 w-8 place-items-center rounded-full text-xs font-semibold", day.day === 1 ? "bg-signal text-white" : "bg-surface text-muted-ink ring-1 ring-line")}>D{day.day}</span>{day.day < plan.length && <span className="absolute left-4 top-12 h-[calc(100%+0.75rem)] border-l border-dashed" aria-hidden="true" />}<Card className={cn("overflow-hidden", day.day === 1 && "border-signal/40")}><button type="button" onClick={() => onToggle(open ? 0 : day.day)} className="flex min-h-16 w-full items-center justify-between gap-4 px-4 text-left sm:px-5" aria-expanded={open}><span><span className="block text-[15px] font-medium">{day.focus}</span><span className="mt-1 block text-xs text-muted-ink">{sessionQuestions.length} questions · {day.minutes} minutes</span></span>{open ? <ChevronUp size={18} className="text-muted-ink" /> : <ChevronDown size={18} className="text-muted-ink" />}</button>{open && <div className="border-t bg-canvas px-4 py-4 sm:px-5"><p className="text-xs font-medium text-muted-ink">Practice prompts</p><ul className="mt-3 space-y-2">{sessionQuestions.map((question) => <li key={question.id} className="flex gap-2 text-sm leading-6"><CircleHelp size={15} className="mt-1 shrink-0 text-violet" />{question.prompt}</li>)}</ul></div>}</Card></li>; })}</ol></section>;
 }
 
 function RegenerationDialog({ category, editedCount, replaceCount, onCancel, onConfirm }: { category: Exclude<Category, "all">; editedCount: number; replaceCount: number; onCancel: () => void; onConfirm: () => void }) {

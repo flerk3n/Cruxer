@@ -91,7 +91,39 @@ export type KitDocument = {
   createdAt: string;
   updatedAt: string;
 };
-export type PracticeProgress = { flashcardId: string; confidence: 1 | 2 | 3; reviewedAt?: string; updatedAt?: string };
+/** Server-backed practice summary for one flashcard. Historical events are not fabricated. */
+export type PracticeProgress = {
+  flashcardId: string;
+  lastConfidence?: 1 | 2 | 3;
+  attempts: number;
+  lastReviewedAt?: string;
+  updatedAt?: string;
+};
+export type ActivityDay = {
+  date: string;
+  flashcardReviews: number;
+  confidence: { low: number; medium: number; high: number };
+  checkedIn: boolean;
+  effortUnits: number;
+};
+export type StudyScheduleSummary = {
+  startedOn: string;
+  deadline: string;
+  totalDays: number;
+  dayNumber: number;
+  daysRemaining: number;
+  status: "active" | "complete";
+  focus: string;
+  minutes: number;
+  questionCount: number;
+};
+export type KitActivity = {
+  timeZone: string;
+  range: { from: string; to: string; days: number };
+  series: ActivityDay[];
+  today?: ActivityDay;
+  schedule: StudyScheduleSummary | null;
+};
 
 function endpoint(path: string): string {
   return `${apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -159,8 +191,15 @@ export const api = {
   updateFlashcard: (kitId: string, flashcardId: string, revision: number, changes: Partial<Omit<KitFlashcard, "id">> & { pinned?: boolean }) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/flashcards/${encodeURIComponent(flashcardId)}`, patch({ revision, ...changes })),
   deleteFlashcard: (kitId: string, flashcardId: string, revision: number) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/flashcards/${encodeURIComponent(flashcardId)}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision }) }),
   regenerate: (kitId: string, revision: number, section: "questions" | "flashcards", category?: QuestionCategory) => request<{ kit?: KitDocument; generationRun?: Pick<GenerationRun, "id" | "kitId"> }>(`/kits/${encodeURIComponent(kitId)}/regenerate`, json({ revision, section, ...(category ? { category } : {}) })),
-  recordPractice: (kitId: string, flashcardId: string, revision: number, confidence: 1 | 2 | 3) => request<{ kit: KitDocument; progress: PracticeProgress }>(`/kits/${encodeURIComponent(kitId)}/practice/${encodeURIComponent(flashcardId)}`, json({ revision, confidence })),
+  recordPractice: (kitId: string, flashcardId: string, revision: number, confidence: 1 | 2 | 3, timeZone?: string) => request<{ kit: KitDocument; progress: PracticeProgress }>(`/kits/${encodeURIComponent(kitId)}/practice/${encodeURIComponent(flashcardId)}`, json({ revision, confidence, ...(timeZone ? { timeZone } : {}) })),
   getPractice: (kitId: string) => request<{ progress: PracticeProgress[] }>(`/kits/${encodeURIComponent(kitId)}/practice`),
+  getActivity: (kitId: string, input: { days?: number; timeZone?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (input.days) query.set("days", String(input.days));
+    if (input.timeZone) query.set("timeZone", input.timeZone);
+    return request<KitActivity>(`/kits/${encodeURIComponent(kitId)}/activity${query.size ? `?${query}` : ""}`);
+  },
+  checkIn: (kitId: string, timeZone?: string) => request<{ activity: ActivityDay }>(`/kits/${encodeURIComponent(kitId)}/activity/check-in`, json(timeZone ? { timeZone } : {})),
   startGeneration: (kitId: string) => request<{ generationRun: Pick<GenerationRun, "id" | "kitId"> }>(`/kits/${encodeURIComponent(kitId)}/generate`, { method: "POST" }),
   getGenerationRun: (runId: string) => request<{ generationRun: GenerationRun }>(`/generation-runs/${encodeURIComponent(runId)}`)
 };

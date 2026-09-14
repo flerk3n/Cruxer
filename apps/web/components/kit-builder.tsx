@@ -50,81 +50,8 @@ type Question = {
 
 type Flashcard = { id: string; front: string; back: string; requirement: string; requirementIds: string[] };
 
-const requirements = [
-  { id: "r1", text: "Lead frontend architecture across product teams", priority: "Must" },
-  { id: "r2", text: "Build accessible, high-quality user experiences", priority: "Must" },
-  { id: "r3", text: "Make thoughtful React and TypeScript trade-offs", priority: "Must" },
-  { id: "r4", text: "Partner clearly with design and product", priority: "Nice" }
-];
-
-const initialQuestions: Question[] = [
-  {
-    id: "q1",
-    category: "technical",
-    prompt: "How would you structure a complex React application so teams can move independently?",
-    answer: "Start with clear domain boundaries and ownership. Keep shared primitives deliberately small, define dependency rules, and use a gradual migration path rather than a rewrite.",
-    requirementIds: ["r1", "r3"],
-    difficulty: 2
-  },
-  {
-    id: "q2",
-    category: "technical",
-    prompt: "When would you choose server state over local client state, and how would you keep it reliable?",
-    answer: "Separate remote cache concerns from ephemeral UI state. Explain invalidation, loading and error states, then connect the choice to the product interaction.",
-    requirementIds: ["r3"],
-    difficulty: 2
-  },
-  {
-    id: "q3",
-    category: "technical",
-    prompt: "Walk us through an accessibility issue you found late in a release and how you resolved it.",
-    answer: "Describe the user impact first, then the semantic or interaction issue, test coverage, and the guardrail you added so it did not return.",
-    requirementIds: ["r2"],
-    difficulty: 1,
-    edited: true
-  },
-  {
-    id: "q4",
-    category: "behavioural",
-    prompt: "Tell me about a time you changed a technical direction after hearing a different perspective.",
-    answer: "Use a specific disagreement. Establish the decision context, what you learned, the decision you made, and how you brought the group along.",
-    requirementIds: ["r4"],
-    difficulty: 2
-  },
-  {
-    id: "q5",
-    category: "system-design",
-    prompt: "Design a resilient experiment framework for a web product used by several teams.",
-    answer: "Clarify exposure, assignment, targeting, data quality, rollback, and the developer workflow before selecting storage or delivery details.",
-    requirementIds: ["r1", "r3"],
-    difficulty: 3
-  },
-  {
-    id: "q6",
-    category: "company-fit",
-    prompt: "What about Atlas's product and stage makes this role a useful next step for you?",
-    answer: "Tie one product observation to the role's ownership model and one concrete way your past work would help the team now.",
-    requirementIds: ["r4"],
-    difficulty: 1
-  }
-];
-
-const flashcards: Flashcard[] = [
-  { id: "f1", front: "What is the first architecture concern to clarify?", back: "Team and domain boundaries: who owns a change, what can be shared, and where dependencies are allowed.", requirement: "Frontend architecture", requirementIds: ["r1"] },
-  { id: "f2", front: "How do you make accessibility work durable?", back: "Pair semantic implementation with keyboard checks, automated coverage, and review criteria that catch regressions before release.", requirement: "Accessible experiences", requirementIds: ["r2"] },
-  { id: "f3", front: "What makes an experiment platform trustworthy?", back: "Stable assignment, explicit exposure logging, data-quality checks, guardrails, and a simple rollback path.", requirement: "Systems thinking", requirementIds: ["r3"] }
-];
-
-const schedule = [
-  { day: 1, focus: "Role signals and React foundations", minutes: 55, questionIds: ["q1", "q2"] },
-  { day: 2, focus: "Accessibility and collaboration stories", minutes: 45, questionIds: ["q3", "q4"] },
-  { day: 3, focus: "Architecture rehearsal", minutes: 60, questionIds: ["q5"] },
-  { day: 4, focus: "Company narrative and gaps", minutes: 40, questionIds: ["q6", "q4"] },
-  { day: 5, focus: "Timed final practice", minutes: 55, questionIds: ["q1", "q5", "q6"] }
-];
-
 function studyPlan(scheduleDays?: Array<{ day: number; focus: string; question_ids: string[]; minutes: number }>): StudyDay[] {
-  return scheduleDays?.map((day) => ({ ...day, questionIds: day.question_ids })) ?? schedule;
+  return scheduleDays?.map((day) => ({ ...day, questionIds: day.question_ids })) ?? [];
 }
 
 function browserTimeZone(): string {
@@ -150,8 +77,8 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const canAnimate = useRef(false);
   const { contextSafe } = useGSAP({ scope: root });
   const [view, setView] = useState<View>("overview");
-  const [questions, setQuestions] = useState(initialQuestions);
-  const [cards, setCards] = useState(flashcards);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [cards, setCards] = useState<Flashcard[]>([]);
   const [kitDocument, setKitDocument] = useState<KitDocument | null>(null);
   const [generationRun, setGenerationRun] = useState<GenerationRun | null>(null);
   const kitRef = useRef<KitDocument | null>(null);
@@ -188,7 +115,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     () => questions.filter((question) => category === "all" || question.category === category),
     [category, questions]
   );
-  const activeFlashcard = cards[flashcardIndex] ?? cards[0]!;
+  const activeFlashcard = cards[flashcardIndex];
   const plan = useMemo(() => studyPlan(kitDocument?.kit?.schedule.days), [kitDocument?.kit?.schedule.days]);
 
   function applyRemote(next: KitDocument) {
@@ -356,10 +283,14 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   }
 
   async function recordConfidence(value: string) {
+    if (!activeFlashcard) {
+      setNotice("There are no flashcards in this kit yet.");
+      return;
+    }
     const label = value === "1" ? "Not yet" : value === "2" ? "Getting there" : "Confident";
     setReviewed((current) => Math.min(12, current + 1));
     setRevealed(false);
-    setFlashcardIndex((current) => (current + 1) % flashcards.length);
+    setFlashcardIndex((current) => (current + 1) % Math.max(cards.length, 1));
     try {
       if (!kitRef.current?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
       const { kit, progress } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
@@ -463,8 +394,8 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5">
       <div>
         <p className="eyebrow">Preparation kit</p>
-        <h1 className="mt-1 text-[clamp(1.7rem,4vw,2rem)] font-semibold tracking-tight">{kitDocument?.kit ? `${kitDocument.kit.source.company} · ${kitDocument.kit.role.title}` : "Atlas · Senior Frontend Engineer"}</h1>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-ink"><StatusPill status={kitDocument?.status === "ready" ? "ready" : kitDocument?.status === "generating" ? "researching" : "partial"} /><span>{loadingKit ? "Loading kit…" : kitDocument ? "Changes save automatically" : "Preview mode"}</span><span aria-hidden="true">·</span><span>{kitDocument?.kit?.schedule.days_available ?? 5} days remaining</span></div>
+        <h1 className="mt-1 text-[clamp(1.7rem,4vw,2rem)] font-semibold tracking-tight">{`${kitDocument.kit.source.company} · ${kitDocument.kit.role.title}`}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-ink"><StatusPill status={kitDocument.status === "ready" ? "ready" : kitDocument.status === "generating" ? "researching" : "partial"} /><span>Changes save automatically</span><span aria-hidden="true">·</span><span>{kitDocument.kit.schedule.days_available} days remaining</span></div>
       </div>
       <Button onClick={() => setView("flashcards")}><BookOpenCheck size={16} />Practice</Button>
     </div>
@@ -474,7 +405,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
         {viewItems.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => setView(id)} className={cn("inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-colors lg:flex lg:w-full", view === id ? "bg-surface text-ink shadow-sm" : "text-muted-ink hover:bg-surface-raised hover:text-ink")} aria-current={view === id ? "page" : undefined}><Icon size={16} />{label}</button>)}
       </nav>
       <main className="min-w-0" aria-live="polite">
-        {view === "overview" && <Overview onOpenQuestions={() => setView("questions")} onOpenSchedule={(day) => { setExpandedDay(day); setView("schedule"); }} requirements={kitDocument?.kit?.role.requirements ?? requirements} kit={kitDocument?.kit} plan={plan} activity={activity} activityError={activityError} onCheckIn={checkIn} checkingIn={checkingIn} />}
+        {view === "overview" && <Overview onOpenQuestions={() => setView("questions")} onOpenSchedule={(day) => { setExpandedDay(day); setView("schedule"); }} requirements={kitDocument.kit.role.requirements} kit={kitDocument.kit} plan={plan} activity={activity} activityError={activityError} onCheckIn={checkIn} checkingIn={checkingIn} />}
         {view === "questions" && <QuestionsView
           category={category}
           editingId={editingId}
@@ -493,7 +424,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
           saving={pendingAction}
           onRegenerate={setRegenerating}
         />}
-        {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} revealed={revealed} reviewed={reviewed} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => { setFlashcardIndex(0); setReviewed(0); setRevealed(false); setNotice("Practice session restarted."); }} />}
+        {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={reviewed} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => { setFlashcardIndex(0); setReviewed(0); setRevealed(false); setNotice("Practice session restarted."); }} />}
         {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} activity={activity} />}
       </main>
     </div>
@@ -505,9 +436,9 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   </div>;
 }
 
-function Overview({ onOpenQuestions, onOpenSchedule, requirements: liveRequirements, kit, plan, activity, activityError, onCheckIn, checkingIn }: { onOpenQuestions: () => void; onOpenSchedule: (day: number) => void; requirements: Array<{ id: string; text: string; priority: string }>; kit?: KitDocument["kit"]; plan: StudyDay[]; activity?: KitActivity | null; activityError: boolean; onCheckIn: () => void; checkingIn: boolean }) {
+function Overview({ onOpenQuestions, onOpenSchedule, requirements: liveRequirements, kit, plan, activity, activityError, onCheckIn, checkingIn }: { onOpenQuestions: () => void; onOpenSchedule: (day: number) => void; requirements: Array<{ id: string; text: string; priority: string }>; kit: NonNullable<KitDocument["kit"]>; plan: StudyDay[]; activity?: KitActivity | null; activityError: boolean; onCheckIn: () => void; checkingIn: boolean }) {
   return <div className="space-y-8">
-    <section><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">Company brief</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Product context, not guesswork.</h2></div></div><Card className="mt-4 p-5 sm:p-6"><p className="max-w-3xl text-[15px] leading-7">{kit?.company_brief.summary ?? "Atlas helps product teams turn complex customer signals into decisions. Its public materials consistently emphasise clear workflows, dependable collaboration, and shipping with confidence—useful cues for a senior frontend role with broad product ownership."}</p><div className="mt-6 grid gap-3 border-t pt-5 sm:grid-cols-2"><Insight title="What they do" text={kit?.company_brief.what_they_do ?? "Decision support for teams working across product, research, and customer feedback."} /><Insight title="Interview signal" text="Show judgment: technical depth that makes the team faster and the product clearer." /></div><div className="mt-5 flex flex-wrap gap-2" aria-label="Research sources">{(kit?.company_brief.sources ?? ["https://www.atlassian.com/company"]).slice(0, 3).map((href) => <Source key={href} href={href} label={new URL(href).hostname} />)}</div></Card></section>
+    <section><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">Company brief</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Product context, not guesswork.</h2></div></div><Card className="mt-4 p-5 sm:p-6"><p className="max-w-3xl text-[15px] leading-7">{kit.company_brief.summary}</p><div className="mt-6 grid gap-3 border-t pt-5 sm:grid-cols-2"><Insight title="What they do" text={kit.company_brief.what_they_do} /><Insight title="Interview signal" text="Use the role requirements and company brief together to make your examples specific." /></div><div className="mt-5 flex flex-wrap gap-2" aria-label="Research sources">{kit.company_brief.sources.slice(0, 3).map((href) => <Source key={href} href={href} label={new URL(href).hostname} />)}</div></Card></section>
     <ReadinessRunway plan={plan} activity={activity} activityError={activityError} onOpenDay={onOpenSchedule} onCheckIn={onCheckIn} checkingIn={checkingIn} />
     <section className="grid gap-4"><Card className="p-5 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">Coverage</p><h2 className="mt-1 text-lg font-semibold">{liveRequirements.length} requirements mapped</h2></div><span className="inline-flex items-center gap-1.5 text-sm font-medium text-success"><CheckCircle2 size={17} />Complete</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full w-full rounded-full bg-success" /></div><ul className="mt-5 divide-y">{liveRequirements.map((requirement) => <li key={requirement.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="flex items-center gap-2"><Check size={15} className="text-success" />{requirement.text}</span><span className="shrink-0 font-mono text-[11px] text-muted-ink">{requirement.priority}</span></li>)}</ul><button type="button" onClick={onOpenQuestions} className="mt-4 inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Inspect mapped questions <ArrowRight size={15} /></button></Card></section>
   </div>;
@@ -540,8 +471,9 @@ function QuestionEditor({ draft, onDraft, onCancel, onSave }: { draft: { prompt:
   return <div className="mt-4 space-y-3"><label className="block"><span className="text-xs font-medium text-muted-ink">Question</span><textarea value={draft.prompt} onChange={(event) => onDraft({ ...draft, prompt: event.target.value })} onKeyDown={onKeyDown} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Answer outline</span><textarea value={draft.answer} onChange={(event) => onDraft({ ...draft, answer: event.target.value })} onKeyDown={onKeyDown} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Category</span><select value={draft.category} onChange={(event) => onDraft({ ...draft, category: event.target.value as Question["category"] })} className="mt-1.5 min-h-11 w-full rounded-xl border bg-canvas px-3 text-sm outline-none focus:border-signal">{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="flex flex-wrap items-center gap-2"><Button size="sm" onClick={onSave}><Check size={15} />Save</Button><Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button><span className="text-xs text-muted-ink">Esc to cancel · ⌘/Ctrl + Enter to save</span></div></div>;
 }
 
-function FlashcardsView({ card, index, revealed, reviewed, onReveal, onConfidence, onRestart }: { card: Flashcard; index: number; revealed: boolean; reviewed: number; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void }) {
-  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2></div><span className="shrink-0 text-sm text-muted-ink">{reviewed} of 12 reviewed</span></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${Math.max(8, reviewed / 12 * 100)}%` }} /></div><Card className="mt-8 min-h-[26rem] p-6 sm:p-10"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{card.requirement}</span><span className="font-mono text-xs text-muted-ink">{index + 1} / {flashcards.length}</span></div><h3 className="editorial-title mt-10 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">{card.front}</h3>{revealed ? <div className="mt-9 border-t pt-6"><p className="text-xs font-medium text-muted-ink">Suggested answer</p><p className="mt-2 text-[15px] leading-7">{card.back}</p><div className="mt-8 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Use 1, 2, or 3 after revealing.</p></div> : <div className="mt-10"><p className="text-sm text-muted-ink">Take a moment before you reveal the answer.</p><Button className="mt-6" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button><p className="mt-3 text-xs text-muted-ink">Space to reveal</p></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></section>;
+function FlashcardsView({ card, index, total, revealed, reviewed, onReveal, onConfidence, onRestart }: { card?: Flashcard; index: number; total: number; revealed: boolean; reviewed: number; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void }) {
+  if (!card) return <section className="mx-auto max-w-3xl py-10 text-center"><p className="eyebrow">Practice session</p><h2 className="mt-2 text-xl font-semibold tracking-tight">No flashcards are available yet.</h2><p className="mt-3 text-sm leading-6 text-muted-ink">Regenerate this kit after adding a fuller job description to create study prompts.</p></section>;
+  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2></div><span className="shrink-0 text-sm text-muted-ink">{reviewed} of {total} reviewed</span></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${Math.max(8, reviewed / Math.max(total, 1) * 100)}%` }} /></div><Card className="mt-8 min-h-[26rem] p-6 sm:p-10"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{card.requirement}</span><span className="font-mono text-xs text-muted-ink">{index + 1} / {total}</span></div><h3 className="editorial-title mt-10 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">{card.front}</h3>{revealed ? <div className="mt-9 border-t pt-6"><p className="text-xs font-medium text-muted-ink">Suggested answer</p><p className="mt-2 text-[15px] leading-7">{card.back}</p><div className="mt-8 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Use 1, 2, or 3 after revealing.</p></div> : <div className="mt-10"><p className="text-sm text-muted-ink">Take a moment before you reveal the answer.</p><Button className="mt-6" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button><p className="mt-3 text-xs text-muted-ink">Space to reveal</p></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></section>;
 }
 
 function ScheduleView({ expandedDay, onToggle, questions, plan, activity }: { expandedDay: number; onToggle: (day: number) => void; questions: Question[]; plan: StudyDay[]; activity?: KitActivity | null }) {

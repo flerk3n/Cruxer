@@ -106,6 +106,36 @@ describe("CruxerKitPipeline", () => {
     expect(events).toContainEqual({ step: "role", status: "completed", message: "The posting contained few explicit requirements." });
   });
 
+  it("recovers source-grounded requirements and practice cards when provider output is empty or mismatched", async () => {
+    const { CruxerKitPipeline } = await import("./pipeline");
+    const generator: JsonGenerator = {
+      async generate<TSchema extends z.ZodType>(request: { prompt: string; schema: TSchema }): Promise<z.infer<TSchema>> {
+        const value = request.prompt.includes("Extract only explicit")
+          ? { title: "Engineer", seniority: "Not specified", location: "", responsibilities: [], requirements: [{ text: "Server-rendered templating", kind: "technical", priority: "must", evidence: "The candidate knows server-rendered templating" }] }
+          : request.prompt.includes("factual company brief")
+            ? { summary: "Acme builds software.", what_they_do: "Software." }
+            : request.prompt.includes("Create compact recall")
+              ? { flashcards: [] }
+              : { questions: [] };
+        return request.schema.parse(value);
+      }
+    };
+    const pipeline = new CruxerKitPipeline({
+      generator,
+      research: { research: async () => ({ documents: [{ url: "https://acme.example", text: "Acme", score: 1, provenance: { type: "company-site", discovered_by: "landing" } }], warnings: [] }) }
+    });
+
+    const kit = await pipeline.run({
+      jd: "What you will do\n• Build production TypeScript APIs\n• Own Docker deployments and CI/CD",
+      company_url: "https://acme.example",
+      days: 2
+    });
+
+    expect(kit.role.requirements.map((requirement) => requirement.text)).toContain("Build production TypeScript APIs");
+    expect(kit.questions.length).toBeGreaterThan(0);
+    expect(kit.flashcards.length).toBeGreaterThan(0);
+  });
+
   it("retries malformed Gemini JSON before returning Zod-validated data", async () => {
     let calls = 0;
     const generator = new GeminiJsonGenerator({

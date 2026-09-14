@@ -131,10 +131,13 @@ export class CruxerKitPipeline implements KitPipeline {
   private async generateFlashcards(requirements: Requirement[], questions: Question[]): Promise<Flashcard[]> {
     const result = await this.generator.generate({ prompt: flashcardsPrompt({ requirements: requirements.map(({ id, text }) => ({ id, text })), questions }), schema: flashcardBatchSchema, responseJsonSchema: jsonSchemas.flashcards });
     const known = new Set(requirements.map((requirement) => requirement.id));
-    return result.flashcards.map((flashcard, index) => {
+    const flashcards = result.flashcards.map((flashcard, index) => {
       assertKnownRequirementIds(flashcard.requirement_ids, known, "flashcard");
       return { ...flashcard, id: `fc-${index + 1}` };
     });
+    // A valid-but-empty model result should not leave an otherwise complete kit
+    // without anything to practise. These cues only reuse generated questions.
+    return flashcards.length > 0 ? flashcards : createFlashcardFallbacks(questions);
   }
 }
 
@@ -155,14 +158,52 @@ function materializeRequirements(extracted: Array<{ text: string; kind: Requirem
   const seen = new Set<string>();
   const requirements: Requirement[] = [];
   for (const candidate of extracted) {
-    // JD evidence is a code-owned guard against prompt-injected or fabricated requirements.
-    if (!jd.includes(candidate.evidence)) continue;
+    // JD evidence is a code-owned guard against prompt-injected or fabricated
+    // requirements. Normalising whitespace/punctuation tolerates harmless
+    // provider formatting changes while still requiring source-grounded text.
+    if (!hasEvidenceInJobDescription(jd, candidate.evidence) && !hasEvidenceInJobDescription(jd, candidate.text)) continue;
     const key = candidate.text.toLocaleLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     requirements.push({ id: `req-${requirements.length + 1}`, text: candidate.text, kind: candidate.kind, priority: candidate.priority });
   }
-  return requirements;
+  return requirements.length > 0 ? requirements : extractExplicitRequirements(jd);
+}
+
+function hasEvidenceInJobDescription(jd: string, evidence: string): boolean {
+  const source = normaliseEvidence(jd);
+  const candidate = normaliseEvidence(evidence);
+  return candidate.length >= 3 && source.includes(candidate);
+}
+
+function normaliseEvidence(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Last-resort extraction for a model response whose evidence does not survive
+ * validation. Each requirement is copied from a signal-bearing JD line, never
+ * inferred from company research or free-form model text.
+ */
+function extractExplicitRequirements(jd: string): Requirement[] {
+  const signal = /\b(build|ship|architect|design|develop|own|lead|debug|typescript|javascript|react|node|python|java|aws|gcp|azure|docker|kubernetes|ci\s*\/\s*cd|api|database|testing|mentor|collaborat|experience|proficien|strong)\b/i;
+  const technical = /\b(typescript|javascript|react|node|python|java|aws|gcp|azure|docker|kubernetes|ci\s*\/\s*cd|api|database|testing|mern|devops|infrastructure|system|software|engineering)\b/i;
+  const behavioural = /\b(mentor|collaborat|communicat|leadership|stakeholder|team)\b/i;
+  const lines = jd.split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[•*\-]+\s*/, "").trim())
+    .filter((line) => line.length >= 8 && line.length <= 240 && signal.test(line));
+  const seen = new Set<string>();
+  return lines.filter((line) => {
+    const key = normaliseEvidence(line);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 12).map((text, index) => ({
+    id: `req-${index + 1}`,
+    text,
+    kind: technical.test(text) ? "technical" : behavioural.test(text) ? "behavioural" : "domain",
+    priority: "must" as const
+  }));
 }
 
 function requirementsForCategory(requirements: Requirement[], category: QuestionCategory): Requirement[] {
@@ -192,6 +233,15 @@ function createCoverageFallbacks(uncovered: string[], requirements: Requirement[
     prompt: `How would you demonstrate your experience with ${requirement.text}?`,
     answer_outline: "Use one concrete example, explain your decisions, quantify the outcome where possible, and connect it to the role.",
     difficulty: requirement.priority === "must" ? 2 : 1
+  }));
+}
+
+function createFlashcardFallbacks(questions: Question[]): Flashcard[] {
+  return questions.slice(0, 16).map((question, index) => ({
+    id: `fc-fallback-${index + 1}`,
+    front: question.prompt,
+    back: question.answer_outline,
+    requirement_ids: question.requirement_ids
   }));
 }
 

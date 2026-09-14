@@ -13,6 +13,7 @@
 | Repository foundation | Complete | npm workspaces, TypeScript, Vitest, and the shared domain package are installed and verified. |
 | Backend/API | Core flow complete | Auth, owner-scoped draft/generation runs, revision-guarded question/flashcard mutations, scoped regeneration preservation, and practice-progress persistence are implemented. |
 | Research/generation pipeline | Generation complete | Gemini 3.1 Flash-Lite structured generation, JD evidence checks, source-safe crawling, Tavily public-discussion research, separate question categories, coverage correction/fallback, deterministic schedule, and final Appendix A validation are implemented. |
+| Generated study material | Complete | Evidence matching tolerates harmless provider whitespace/punctuation changes, source-grounded JD-line fallback prevents empty requirement sets for substantive postings, and question-derived flashcards cover valid empty-card responses. |
 | Frontend | Core flow complete | Live auth/dashboard/generation polling, optimistic persisted builder edits, conflict reload, scoped regeneration states, practice confidence, and the Readiness Runway/activity graph are implemented. |
 | Local generation reliability | Complete | Fixed first-time generation persistence: Mongoose’s empty optional nested regeneration object no longer routes normal runs through regeneration merge logic. Failed runs now offer retry and safe stage-aware diagnostics. |
 | Deployment and walkthrough | Configuration complete | Render Blueprint, Vercel rewrite configuration, environment templates, and a submission README are committed. Public URLs and walkthrough recording await service-account access. |
@@ -52,6 +53,9 @@
 - Diagnosed and fixed a real local generation failure after the pipeline had completed: Mongoose hydrates an omitted nested `regeneration` field as a truthy empty object, which incorrectly invoked the regeneration merge path for a first-time kit. Normal runs now require a valid regeneration section before merging.
 - Added safe server-side generation failure logging keyed by run id and stage-specific persistence diagnostics, preserving provider/database details in the API host logs rather than client responses.
 - Replaced the misleading Atlas demo fallback for incomplete kits with an honest incomplete state and a working retry flow. Verified the previously failed run reaches `ready` and persists its generated kit; API tests now total 8, and type checks plus the production web build pass.
+- Fixed empty generated kits: when provider evidence formatting does not exactly match the source, requirements now use normalized evidence matching and a bounded fallback that copies only explicit, signal-bearing JD lines. Empty valid flashcard output now receives question-derived recall cards.
+- Removed Atlas/sample content from the kit and standalone practice routes. Empty generated material is shown honestly rather than rendered as a demo. Re-ran the affected local Trao kit successfully: 9 requirements, 15 questions, and 12 flashcards persisted.
+- Re-verified: 26 shared tests, 8 API tests, all workspace type checks, production web build, and whitespace validation pass.
 
 ## Active commitments
 

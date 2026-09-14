@@ -2,7 +2,7 @@
 
 ## 1. Scope and delivery guardrails
 
-This plan implements the assessment specification only. The product will support authentication, single and batch kit creation, research and multi-step generation, the editable kit builder, flashcard practice, deterministic scheduling, the required batch evaluator, deployment, documentation, and the specified tests.
+This plan implements the assessment specification only. The product will support authentication, single-kit creation (with another role prepared by pasting it into a new kit), research and multi-step generation, the editable kit builder, flashcard practice, deterministic scheduling, the required batch evaluator, deployment, documentation, and the specified tests.
 
 It will **not** add CV processing, job search, application workflows, payments, collaboration, audio/video simulation, email verification, password reset, roles, or an optional creative feature. The optional feature is deliberately excluded to protect the four-day timebox and the scored requirements.
 
@@ -103,7 +103,7 @@ Implement a small versioned REST surface with Zod validation, ownership middlewa
 - `GET /kits`, `POST /kits`, `GET /kits/:id`, `PATCH /kits/:id`.
 - `POST /kits/:id/regenerate` (brief, category, or schedule only), `GET /generation-runs/:id`.
 - Protected granular endpoints for question/flashcard add/update/delete/reorder/category move and flashcard confidence events.
-- `POST /kits/batch` accepts a validated JSON upload in the documented Appendix B input shape (with a clear downloadable example), starts one persisted run per row, and reports row-level results. Supporting CSV is intentionally excluded: a single documented file format satisfies the file-upload requirement without adding ambiguous field mapping.
+- The required multi-case path is the documented `npm run evaluate` command. The web UI deliberately supports preparing another role by creating another kit, which satisfies the brief without exposing an unfinished file-upload surface or creating a second UI generation workflow.
 - `GET /health` remains public and has no sensitive details.
 
 Passwords use bcrypt with a documented cost factor. Use short-lived signed JWT session cookies, token expiry handling, and explicit logout cookie clearing. Auth middleware verifies signature, expiry, and owner id for every protected endpoint. Apply Helmet-style headers, a production origin allow-list, and no secrets in responses/logs.
@@ -111,7 +111,7 @@ Passwords use bcrypt with a documented cost factor. Use short-lived signed JWT s
 ### 5.2 Pages and interaction states
 
 - **Public:** landing/login/register routes. Protected route middleware redirects unauthenticated visitors.
-- **Kit dashboard:** only the current user’s kits, clear empty state, create-kit form (JD textarea, company URL, days), and a batch file chooser with per-case feedback.
+- **Kit dashboard:** only the current user’s kits, clear empty state, and a focused create-kit form (JD textarea, company URL, days). A user prepares another role by creating another kit.
 - **Generation view:** a durable stepper backed by the generation run, source/warning summary, recoverable failure messages and retry/reopen actions. Never fake percentage or hide a partial research result.
 - **Kit builder:** tabs/sections for company brief, role, categorized questions, flashcards, schedule, and coverage. Inline save on blur/explicit keyboard save, local optimistic updates, accessible drag handles and up/down controls as a non-pointer alternative, category move menu, add/delete confirmation, and narrow regeneration controls.
 - **Practice:** one flashcard at a time, reveal answer, confidence 1–3 input, covered/remaining progress, and next-session ordering by lowest confidence first, then least recently reviewed. This simple deterministic confidence-weighted ordering will be defended in the README.
@@ -184,7 +184,7 @@ The CLI validates Appendix B input, processes cases with conservative bounded co
 
 ### Phase 4 — Complete usable frontend (one day)
 
-- Build auth, dashboard/create/batch input, progress view, responsive builder, inline editing/reorder/category move, scoped regeneration, and practice mode.
+- Build auth, dashboard/create input, progress view, responsive builder, inline editing/reorder/category move, scoped regeneration, and practice mode.
 - Add keyboard and mobile checks, optimistic/revision-conflict behavior, loading/empty/error states, and end-to-end smoke tests.
 
 **Exit criterion:** a user can complete the required walkthrough entirely through the deployed-style UI, including an edit that survives category regeneration.

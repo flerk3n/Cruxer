@@ -72,6 +72,7 @@
 - Replaced the custom dock with the generated Magic UI dock after initializing the local shadcn registry. The dock now sits in a full-width flex-centred rail and uses Cruxer’s own palette and Lucide icon set; shadcn’s unsolicited global/button/theme rewrites and dependencies were removed. All 40 tests, workspace type checks, and the production build pass.
 - Stabilised the Magic UI dock interaction: it now uses viewport pointer coordinates and non-shrinking flex icons for predictable magnification, keeps visible gaps between expanding actions, and supplies animated caption tooltips on hover and keyboard focus. Web type checks and the production build pass.
 - Balanced the dock hierarchy: all actions, including New kit, now begin neutral; accent circles appear consistently only on hover/focus while the current route remains quietly identifiable. Increased the resting and magnified dock target sizes. Web type checks and the production build pass.
+- Rebuilt `/dashboard/new` around a focused single-kit flow and removed the non-functional multiple-role upload placeholder. Submission now transitions into an animated, persisted generation room with actual step states, warnings, retry state, company/window context, and reduced-motion-safe visual treatment. Updated the delivery plan to retain the mandatory batch CLI while meeting the assignment’s multi-role UI allowance by creating/pasting another kit. All 40 tests, type checks, production build, and whitespace validation pass.
 
 ## Active commitments
 

@@ -92,7 +92,7 @@ Use a maximum of three visual weights per view: canvas, surface, and active/rais
 
 The landing page communicates one promise: “Turn a role into a plan you can defend.” It uses a spare editorial hero, a small interactive-looking kit preview, and one CTA. No pricing, testimonial carousel, or feature-grid scope.
 
-Auth is a centred, low-distraction panel with an adjacent short statement of value. Password rules are visible before submit. A successful login transitions directly to the dashboard.
+Auth is a centred, low-distraction panel with an adjacent short statement of value. Password rules are visible before submit. A successful login transitions directly to the dashboard. Preparing another role is done by opening a new kit and pasting its material; no incomplete batch-upload control is exposed in the product UI.
 
 ### 2. Dashboard and new-kit flow
 
@@ -118,7 +118,7 @@ On mobile, the “what happens next” panel becomes a compact disclosure below 
 
 ### 3. Generation room
 
-Generation has its own durable screen so reloads are safe. A left-aligned progress rail makes the real sequence legible: Inputs → Company research → Role signals → Question bank → Coverage pass → Study plan. The active step has a small pulse and plain-language activity message; complete steps show a time and any warnings.
+Generation has its own durable, animated room so reloads are safe. A responsive grid makes the real sequence legible: Inputs → Company research → Role signals → Question bank → Coverage pass → Study plan. The active step has a small pulse and plain-language activity message; complete and warning states are explicit, while the company and preparation-window context remains visible alongside the run. Decorative grid/orbit motion is reduced-motion-safe and never stands in for real progress.
 
 Research findings appear as source chips as they arrive. A partial state is never visually styled as failure: amber callouts explain what was skipped and affirm that the kit can still be useful. Failure shows an actionable error card with retry/reopen options and preserves completed work.
 

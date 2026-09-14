@@ -7,7 +7,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 const instrument = Instrument_Serif({ variable: "--font-instrument-serif", weight: "400", subsets: ["latin"] });
 const dmSans = DM_Sans({ variable: "--font-dm-sans", subsets: ["latin"] });
 
-export const metadata: Metadata = { title: { default: "Cruxer — Interview preparation", template: "%s · Cruxer" }, description: "Research-grounded interview preparation kits." };
+export const metadata: Metadata = { title: { default: "Cruxer - Interview preparation", template: "%s · Cruxer" }, description: "Research-grounded interview preparation kits." };
 
 const themeScript = `(() => { try { const saved = localStorage.getItem('cruxer-theme'); const dark = saved === 'dark' || (!saved && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.classList.toggle('dark', dark); } catch {} })()`;
 

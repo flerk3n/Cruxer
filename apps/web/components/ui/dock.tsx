@@ -65,7 +65,7 @@ const Dock = React.forwardRef<HTMLDivElement, DockProps>(
     return (
       <motion.div
         ref={ref}
-        onMouseMove={(e) => mouseX.set(e.pageX)}
+        onMouseMove={(e) => mouseX.set(e.clientX)}
         onMouseLeave={() => mouseX.set(Infinity)}
         {...props}
         className={cn("mx-auto flex h-[58px] w-max items-center justify-center gap-2 rounded-2xl border p-2 backdrop-blur-md", className, {
@@ -132,9 +132,10 @@ const DockIcon = ({
   return (
     <motion.div
       ref={ref}
+      layout="position"
       style={{ width: scaleSize, height: scaleSize, padding }}
       className={cn(
-        "flex aspect-square cursor-pointer items-center justify-center rounded-full",
+        "group/dock-icon relative flex shrink-0 cursor-pointer items-center justify-center rounded-full",
         disableMagnification && "hover:bg-muted-foreground transition-colors",
         className
       )}

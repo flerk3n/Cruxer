@@ -15,7 +15,5 @@ const userSchema = new Schema<UserRecord>(
   { timestamps: true, versionKey: false, strict: "throw" }
 );
 
-userSchema.index({ email: 1 }, { unique: true });
-
 export type UserDocument = HydratedDocument<UserRecord>;
 export const User = (mongoose.models.User as Model<UserRecord> | undefined) ?? model<UserRecord>("User", userSchema);

@@ -36,7 +36,7 @@ export class GenerationOrchestrator {
   async regenerate(
     ownerId: string,
     kitId: string,
-    request: { revision: number; section: "questions" | "flashcards"; category?: "technical" | "behavioural" | "system-design" | "company-fit" }
+    request: { revision: number; section: "questions" | "flashcards" | "company-brief" | "schedule"; category?: "technical" | "behavioural" | "system-design" | "company-fit" }
   ): Promise<{ kit: KitRecord & { _id: { toString(): string } }; generationRun: { id: string; kitId: string } }> {
     const kit = await Kit.findOne({ _id: kitId, ownerId }).select("generationInput status revision kit").lean();
     if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
@@ -244,7 +244,7 @@ type ScopedRegeneration = NonNullable<GenerationRunRecord["regeneration"]>;
  * truthy; only the discriminating `section` field makes it a real regeneration.
  */
 export function scopedRegeneration(value: GenerationRunRecord["regeneration"] | Record<string, unknown> | undefined): ScopedRegeneration | undefined {
-  if (value?.section === "questions" || value?.section === "flashcards") {
+  if (value?.section === "questions" || value?.section === "flashcards" || value?.section === "company-brief" || value?.section === "schedule") {
     return value as ScopedRegeneration;
   }
   return undefined;

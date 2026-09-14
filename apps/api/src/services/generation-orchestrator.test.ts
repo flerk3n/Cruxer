@@ -12,4 +12,9 @@ describe("scopedRegeneration", () => {
       category: "technical"
     });
   });
+
+  it("recognises company brief and schedule refreshes as scoped regeneration", () => {
+    expect(scopedRegeneration({ section: "company-brief" })).toEqual({ section: "company-brief" });
+    expect(scopedRegeneration({ section: "schedule" })).toEqual({ section: "schedule" });
+  });
 });

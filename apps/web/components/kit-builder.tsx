@@ -444,7 +444,6 @@ export function KitBuilder({ kitId }: { kitId: string }) {
       setNotice("There are no flashcards in this kit yet.");
       return;
     }
-    const label = value === "1" ? "Not yet" : value === "2" ? "Getting there" : "Confident";
     const isLastCard = flashcardIndex >= cards.length - 1;
     setSessionReviewed((current) => Math.min(cards.length, current + 1));
     setSessionConfidence((current) => value === "1" ? { ...current, low: current.low + 1 } : value === "2" ? { ...current, medium: current.medium + 1 } : { ...current, high: current.high + 1 });
@@ -453,11 +452,10 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     else setFlashcardIndex((current) => current + 1);
     try {
       if (!kitRef.current?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
-      const { kit, progress } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
-      applyRemote(kit, { preserveCards: true });
+      const { progress } = await api.recordPractice(kitId, activeFlashcard.id, Number(value) as 1 | 2 | 3, browserTimeZone());
       applyPracticeProgress([...practiceProgressRef.current.filter((item) => item.flashcardId !== progress.flashcardId), progress]);
     } catch (cause) {
-      setNotice(`${label} saved for this session. ${apiErrorMessage(cause)}`);
+      setNotice(`Could not save this confidence rating. ${apiErrorMessage(cause)}`);
     }
   }
 

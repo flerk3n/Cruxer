@@ -93,7 +93,6 @@ const timeZoneSchema = z.string().trim().min(1).max(80).transform((value, ctx) =
   try { return assertTimeZone(value); } catch { ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Use a valid IANA time zone, such as Asia/Kolkata." }); return z.NEVER; }
 });
 const practiceConfidenceSchema = z.object({
-  revision: z.number().int().min(0),
   confidence: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   timeZone: timeZoneSchema.optional()
 }).strict();
@@ -331,18 +330,23 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
     try {
       const kitId = kitIdSchema.parse(req.params.kitId);
       const flashcardId = z.string().trim().min(1).parse(req.params.flashcardId);
-      const { revision, confidence, timeZone = DEFAULT_TIME_ZONE } = practiceConfidenceSchema.parse(req.body);
-      const kit = await mutateKit(req.auth!.userId, kitId, revision, (draft) => {
-        if (!draft.flashcards.some((flashcard) => flashcard.id === flashcardId)) throw new ApiError(404, "FLASHCARD_NOT_FOUND", "The requested flashcard was not found.");
-        return draft;
-      });
+      const { confidence, timeZone = DEFAULT_TIME_ZONE } = practiceConfidenceSchema.parse(req.body);
+      // Practice changes user progress, not the editable kit. It must not consume
+      // the builder revision or make a fast next-card rating conflict with the
+      // previous request. The current kit is read only to reject deleted cards.
+      const kit = await Kit.findOne({ _id: kitId, ownerId: req.auth!.userId }).lean() as PersistedKit | null;
+      if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
+      if (!kit.kit) throw new ApiError(409, "KIT_NOT_READY", "Generate this kit before recording practice.");
+      if (!(kit.kit as PersistedKitPayload).flashcards.some((flashcard) => flashcard.id === flashcardId)) {
+        throw new ApiError(404, "FLASHCARD_NOT_FOUND", "The requested flashcard was not found.");
+      }
       const progress = await PracticeProgress.findOneAndUpdate(
         { ownerId: req.auth!.userId, kitId, flashcardId },
         { $set: { lastConfidence: confidence, confidenceScore: confidenceScore(confidence), lastReviewedAt: new Date() }, $inc: { attempts: 1 } },
         { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
       );
       await recordFlashcardActivity(req.auth!.userId, kitId, confidence, timeZone);
-      res.json({ kit: serializeKit(kit), progress: serializePracticeProgress(progress) });
+      res.json({ progress: serializePracticeProgress(progress) });
     } catch (error) { next(error); }
   });
 

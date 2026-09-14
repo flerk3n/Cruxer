@@ -178,6 +178,33 @@ describe("API authorization and builder contracts", () => {
     expect(overview.kits[0]?.confidencePercent).toBe(50);
   });
 
+  it("records flashcard confidence without consuming or requiring the builder revision", async () => {
+    const now = new Date("2026-09-14T10:00:00.000Z");
+    models.Kit.findOne.mockReturnValue(query(fixtureKit({ revision: 99 })));
+    models.PracticeProgress.findOneAndUpdate.mockResolvedValue({
+      flashcardId: "flashcard-1",
+      lastConfidence: 2,
+      confidenceScore: 50,
+      attempts: 1,
+      lastReviewedAt: now,
+      updatedAt: now
+    });
+
+    const { response, body } = await request(baseUrl, `/kits/${KIT_ID}/practice/flashcard-1`, {
+      method: "POST",
+      body: JSON.stringify({ confidence: 2, timeZone: "UTC" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(body.error).toBeUndefined();
+    expect(models.PracticeProgress.findOneAndUpdate).toHaveBeenCalledWith(
+      { ownerId: OWNER_ID, kitId: KIT_ID, flashcardId: "flashcard-1" },
+      expect.objectContaining({ $set: expect.objectContaining({ lastConfidence: 2, confidenceScore: 50 }) }),
+      expect.objectContaining({ upsert: true })
+    );
+    expect(models.Kit.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("scopes kit reads to the authenticated owner and does not expose another user's kit", async () => {
     models.Kit.findOne.mockReturnValue(query(undefined));
 

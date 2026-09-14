@@ -6,6 +6,9 @@ export type PipelineErrorCode =
   | "UNEXPECTED_CONTENT_TYPE"
   | "RESPONSE_TOO_LARGE"
   | "HTTP_ERROR"
+  | "GENERATION_UNAVAILABLE"
+  | "GENERATION_FAILED"
+  | "GENERATION_INVALID"
   | "PIPELINE_NOT_CONFIGURED";
 
 export class PipelineError extends Error {

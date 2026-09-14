@@ -1,5 +1,7 @@
 export * from "./company-research";
 export * from "./errors";
+export * from "./gemini";
+export * from "./generation-schemas";
 export * from "./input-schema";
 export * from "./link-discovery";
 export * from "./pipeline";

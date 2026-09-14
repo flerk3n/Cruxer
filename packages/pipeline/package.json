@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@cruxer/domain": "0.1.0",
+    "@google/genai": "^2.22.0",
     "zod": "^3.24.1"
   }
 }

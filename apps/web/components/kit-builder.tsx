@@ -456,7 +456,6 @@ export function KitBuilder({ kitId }: { kitId: string }) {
       const { kit, progress } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
       applyRemote(kit, { preserveCards: true });
       applyPracticeProgress([...practiceProgressRef.current.filter((item) => item.flashcardId !== progress.flashcardId), progress]);
-      setNotice(isLastCard ? `${label} recorded. You completed this session.` : `${label} recorded. Next card ready.`);
     } catch (cause) {
       setNotice(`${label} saved for this session. ${apiErrorMessage(cause)}`);
     }

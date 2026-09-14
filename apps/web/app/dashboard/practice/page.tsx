@@ -1,0 +1,6 @@
+import { ArrowRight, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+
+export const metadata = { title: "Practice" };
+export default function PracticePage() { return <div className="mx-auto max-w-3xl"><div className="flex items-center justify-between"><div><p className="eyebrow">Practice session</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">Atlas · Frontend architecture</h1></div><span className="text-sm text-muted-ink">3 of 12 reviewed</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full w-1/4 rounded-full bg-violet" /></div><Card className="mt-10 p-6 sm:p-10"><p className="text-xs font-medium text-violet">React architecture · Must-have</p><h2 className="editorial-title mt-8 text-4xl leading-[1.05]">How would you structure a complex React application so teams can move independently?</h2><p className="mt-8 text-sm text-muted-ink">Take a moment before you reveal an outline.</p><Button className="mt-8" variant="secondary">Reveal answer <ArrowRight size={16} /></Button></Card><button type="button" className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></div>; }

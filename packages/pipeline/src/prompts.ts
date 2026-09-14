@@ -37,15 +37,16 @@ ${renderDocuments(input.research)}
 </UNTRUSTED_RESEARCH>`;
 }
 
-export function flashcardsPrompt(input: { requirements: Array<{ id: string; text: string }>; questions: Array<{ requirement_ids: string[]; prompt: string; answer_outline: string }> }): string {
+export function flashcardsPrompt(input: { requirements: Array<{ id: string; text: string }>; questions: Array<{ requirement_ids: string[]; prompt: string; answer_outline: string }>; minimum?: number; existing?: Array<{ front: string; back: string; requirement_ids: string[] }> }): string {
   return `${SYSTEM_RULES}
-Create compact recall flashcards from the listed requirements and question outlines. Only reference IDs from the requirement list. Keep fronts as questions/prompts and backs as concise study cues.
+Create compact recall flashcards from the listed requirements and question outlines. Only reference IDs from the requirement list. Keep fronts as questions/prompts and backs as concise study cues. ${input.minimum ? `Return at least ${input.minimum} distinct cards.` : ""} ${input.existing?.length ? "Do not repeat the existing cards." : ""}
 <TRUSTED_REQUIREMENT_IDS>
 ${JSON.stringify(input.requirements)}
 </TRUSTED_REQUIREMENT_IDS>
 <UNTRUSTED_GENERATED_QUESTIONS>
 ${JSON.stringify(input.questions)}
-</UNTRUSTED_GENERATED_QUESTIONS>`;
+</UNTRUSTED_GENERATED_QUESTIONS>
+${input.existing?.length ? `<TRUSTED_EXISTING_FLASHCARDS>\n${JSON.stringify(input.existing)}\n</TRUSTED_EXISTING_FLASHCARDS>` : ""}`;
 }
 
 function renderDocuments(documents: ResearchDocument[]): string {

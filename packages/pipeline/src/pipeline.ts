@@ -129,15 +129,21 @@ export class CruxerKitPipeline implements KitPipeline {
   }
 
   private async generateFlashcards(requirements: Requirement[], questions: Question[]): Promise<Flashcard[]> {
-    const result = await this.generator.generate({ prompt: flashcardsPrompt({ requirements: requirements.map(({ id, text }) => ({ id, text })), questions }), schema: flashcardBatchSchema, responseJsonSchema: jsonSchemas.flashcards });
+    if (requirements.length === 0) return [];
     const known = new Set(requirements.map((requirement) => requirement.id));
-    const flashcards = result.flashcards.map((flashcard, index) => {
+    const target = flashcardTarget(requirements);
+    const primary = await this.generator.generate({ prompt: flashcardsPrompt({ requirements: requirements.map(({ id, text }) => ({ id, text })), questions, minimum: target }), schema: flashcardBatchSchema, responseJsonSchema: jsonSchemas.flashcards });
+    let candidates = primary.flashcards;
+    if (candidates.length < target) {
+      const additional = await this.generator.generate({ prompt: flashcardsPrompt({ requirements: requirements.map(({ id, text }) => ({ id, text })), questions, minimum: target - candidates.length, existing: candidates }), schema: flashcardBatchSchema, responseJsonSchema: jsonSchemas.flashcards });
+      candidates = [...candidates, ...additional.flashcards];
+    }
+    const unique = uniqueFlashcards(candidates);
+    const flashcards = unique.map((flashcard) => {
       assertKnownRequirementIds(flashcard.requirement_ids, known, "flashcard");
-      return { ...flashcard, id: `fc-${index + 1}` };
+      return flashcard;
     });
-    // A valid-but-empty model result should not leave an otherwise complete kit
-    // without anything to practise. These cues only reuse generated questions.
-    return flashcards.length > 0 ? flashcards : createFlashcardFallbacks(questions);
+    return ensureFlashcardTarget(flashcards, requirements, questions, target).slice(0, 24).map((flashcard, index) => ({ ...flashcard, id: `fc-${index + 1}` }));
   }
 }
 
@@ -236,13 +242,53 @@ function createCoverageFallbacks(uncovered: string[], requirements: Requirement[
   }));
 }
 
-function createFlashcardFallbacks(questions: Question[]): Flashcard[] {
-  return questions.slice(0, 16).map((question, index) => ({
-    id: `fc-fallback-${index + 1}`,
-    front: question.prompt,
-    back: question.answer_outline,
-    requirement_ids: question.requirement_ids
-  }));
+function flashcardTarget(requirements: Requirement[]): number {
+  const weightedCoverage = requirements.reduce((total, requirement) => total + (requirement.priority === "must" ? 2 : 1), 0);
+  return Math.min(24, Math.max(12, weightedCoverage));
+}
+
+function uniqueFlashcards(cards: Array<{ front: string; back: string; requirement_ids: string[] }>): Array<{ front: string; back: string; requirement_ids: string[] }> {
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    const key = `${card.front.trim().toLocaleLowerCase()}\u0000${card.back.trim().toLocaleLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function ensureFlashcardTarget(
+  existing: Array<{ front: string; back: string; requirement_ids: string[] }>,
+  requirements: Requirement[],
+  questions: Question[],
+  target: number
+): Array<{ front: string; back: string; requirement_ids: string[] }> {
+  const cards = [...existing];
+  const seen = new Set(cards.map((card) => `${card.front.trim().toLocaleLowerCase()}\u0000${card.back.trim().toLocaleLowerCase()}`));
+  const add = (card: { front: string; back: string; requirement_ids: string[] }) => {
+    const key = `${card.front.trim().toLocaleLowerCase()}\u0000${card.back.trim().toLocaleLowerCase()}`;
+    if (cards.length < target && !seen.has(key)) { cards.push(card); seen.add(key); }
+  };
+  const cardsFor = (requirementId: string) => cards.filter((card) => card.requirement_ids.includes(requirementId)).length;
+  for (const requirement of requirements) {
+    const quota = requirement.priority === "must" ? 2 : 1;
+    const related = questions.filter((question) => question.requirement_ids.includes(requirement.id));
+    for (const question of related) {
+      if (cardsFor(requirement.id) >= quota) break;
+      add({ front: question.prompt, back: question.answer_outline, requirement_ids: question.requirement_ids });
+    }
+    if (cardsFor(requirement.id) < quota) add({ front: `What approach would you take to demonstrate ${requirement.text}?`, back: "Use one specific example, explain the decision you made, and connect the outcome to this role.", requirement_ids: [requirement.id] });
+    if (cardsFor(requirement.id) < quota) add({ front: `Which concrete result best supports your experience with ${requirement.text}?`, back: "Prepare a concise story with the context, your contribution, the trade-off, and a measurable outcome.", requirement_ids: [requirement.id] });
+  }
+  for (const question of questions) add({ front: question.prompt, back: question.answer_outline, requirement_ids: question.requirement_ids });
+  for (const requirement of requirements) add({ front: `What should you emphasise when discussing ${requirement.text}?`, back: "Be specific about your ownership, the technical or collaborative judgment involved, and the outcome.", requirement_ids: [requirement.id] });
+  const rehearsalAngles = ["the first decision", "the key trade-off", "the evidence", "the constraint", "the validation", "the collaboration", "the measurable result", "the alternative", "the risk", "the implementation detail", "the lesson", "the follow-up question"];
+  for (let index = 0; cards.length < target; index += 1) {
+    const requirement = requirements[index % requirements.length]!;
+    const angle = rehearsalAngles[index % rehearsalAngles.length]!;
+    add({ front: `For ${requirement.text}, what would you say about ${angle}?`, back: "Use a concise, truthful example from your experience and connect your judgment to the role requirement.", requirement_ids: [requirement.id] });
+  }
+  return cards;
 }
 
 function assertKnownRequirementIds(ids: string[], known: Set<string>, subject: string): void {

@@ -133,7 +133,10 @@ describe("CruxerKitPipeline", () => {
 
     expect(kit.role.requirements.map((requirement) => requirement.text)).toContain("Build production TypeScript APIs");
     expect(kit.questions.length).toBeGreaterThan(0);
-    expect(kit.flashcards.length).toBeGreaterThan(0);
+    expect(kit.flashcards).toHaveLength(12);
+    for (const requirement of kit.role.requirements) {
+      expect(kit.flashcards.filter((card) => card.requirement_ids.includes(requirement.id)).length).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it("retries malformed Gemini JSON before returning Zod-validated data", async () => {

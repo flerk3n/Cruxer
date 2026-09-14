@@ -36,7 +36,7 @@ export const generatedFlashcardSchema = z.object({
   requirement_ids: z.array(nonEmpty).min(1).max(3)
 });
 
-export const flashcardBatchSchema = z.object({ flashcards: z.array(generatedFlashcardSchema).max(30) });
+export const flashcardBatchSchema = z.object({ flashcards: z.array(generatedFlashcardSchema).max(24) });
 
 /** JSON Schema is deliberately compact; runtime Zod checks are the final guard. */
 export const jsonSchemas = {

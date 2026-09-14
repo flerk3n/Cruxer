@@ -60,6 +60,7 @@
 - Scoped authentication rate limiting to password-bearing login/registration requests. Dashboard `GET /auth/session` reads are no longer counted as credential attempts; a regression test verifies 30 authenticated session reads remain available. Re-verified with 26 shared tests, 9 API tests, workspace type checks, and a production web build.
 - Moved readiness and daily effort from kit pages to a user-scoped workspace dashboard. The new authenticated aggregate endpoint combines all ready-kit flashcard progress and activity by calendar day without fabricating missed effort. Rebuilt the overview as a real dashboard with welcome state, quote, workspace totals, combined progress, GitHub-style graph, and kit list.
 - Added a role-specific practice library, functioning account/settings route, and accessible `⌘K`/`Ctrl+K` command palette. Removed the obsolete kit-specific Readiness Runway component. Live local endpoint verification returned aggregated ready kits and a 35-day activity series.
+- Added requirement-aware flashcard volume and coverage: new/full-regenerated kits target at least 12 cards, two cues for each must-have requirement and one for each nice-to-have, capped at 24. A short model result receives one targeted follow-up generation pass, then only question/requirement-grounded fallback cues for remaining gaps. Existing kits are intentionally not overwritten automatically.
 
 ## Active commitments
 

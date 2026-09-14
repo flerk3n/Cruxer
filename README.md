@@ -29,7 +29,7 @@ npm install
 cp .env.example .env
 ```
 
-Fill `.env` with real secrets. Start each service in its own terminal:
+Fill `.env` with real secrets. Quote any value containing shell-significant characters (notably the `&` in a MongoDB URI), for example `MONGODB_URI='mongodb+srv://…?retryWrites=true&w=majority'`. Start each service in its own terminal:
 
 ```bash
 set -a && source .env && set +a

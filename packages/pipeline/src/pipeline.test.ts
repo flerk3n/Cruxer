@@ -37,7 +37,7 @@ describe("CruxerKitPipeline", () => {
     };
     const pipeline = new CruxerKitPipeline({
       generator,
-      research: { research: async () => ({ documents: [{ url: "https://acme.example", text: "Acme makes developer tools.", score: 1 }], warnings: [] }) },
+      research: { research: async () => ({ documents: [{ url: "https://acme.example", text: "Acme makes developer tools.", score: 1, provenance: { type: "company-site", discovered_by: "landing" } }], warnings: [] }) },
       now: () => new Date("2026-09-14T00:00:00.000Z")
     });
 
@@ -64,7 +64,7 @@ describe("CruxerKitPipeline", () => {
         return request.schema.parse(value);
       }
     };
-    const pipeline = new CruxerKitPipeline({ generator, research: { research: async () => ({ documents: [{ url: "https://acme.example", text: "Acme", score: 1 }], warnings: [] }) } });
+    const pipeline = new CruxerKitPipeline({ generator, research: { research: async () => ({ documents: [{ url: "https://acme.example", text: "Acme", score: 1, provenance: { type: "company-site", discovered_by: "landing" } }], warnings: [] }) } });
     const kit = await pipeline.run({ jd, company_url: "https://acme.example", days: 1 });
     expect(kit.coverage).toEqual({ uncovered_requirement_ids: [], passes: 3 });
     expect(kit.questions[0]?.id).toMatch(/^q-fallback-/);

@@ -49,5 +49,9 @@ ${JSON.stringify(input.questions)}
 }
 
 function renderDocuments(documents: ResearchDocument[]): string {
-  return documents.slice(0, 6).map((document, index) => `<UNTRUSTED_PAGE index="${index + 1}" url="${document.url}">\n${document.text.slice(0, 8_000)}\n</UNTRUSTED_PAGE>`).join("\n");
+  return documents.slice(0, 6).map((document, index) => {
+    const source = document.provenance.type === "public-discussion" ? "public-discussion" : "company-site";
+    const query = document.provenance.query ? ` query=${JSON.stringify(document.provenance.query)}` : "";
+    return `<UNTRUSTED_PAGE index="${index + 1}" source=${source}${query} url="${document.url}">\n${document.text.slice(0, 8_000)}\n</UNTRUSTED_PAGE>`;
+  }).join("\n");
 }

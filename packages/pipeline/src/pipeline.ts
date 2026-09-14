@@ -5,6 +5,7 @@ import { flashcardBatchSchema, jsonSchemas, questionBatchSchema, roleExtractionS
 import { GeminiJsonGenerator, type JsonGenerator } from "./gemini";
 import { pipelineInputSchema, type PipelineInput } from "./input-schema";
 import { companyBriefPrompt, flashcardsPrompt, questionsPrompt, roleExtractionPrompt } from "./prompts";
+import { TavilyPublicDiscussionSearch } from "./public-discussion-search";
 import { RobotsPolicy } from "./robots";
 import { SafeTextFetcher } from "./safe-fetch";
 import { createUrlSafetyPolicy } from "./url-policy";
@@ -210,5 +211,5 @@ function createDefaultResearchService(): CompanyResearchService {
     const response = await fetch(url, { headers: { "user-agent": "CruxerResearchBot/0.1" }, signal: AbortSignal.timeout(5_000) });
     return response.ok ? await response.text() : undefined;
   });
-  return new CompanyResearchService(robots, fetcher);
+  return new CompanyResearchService(robots, fetcher, { publicDiscussionSearch: new TavilyPublicDiscussionSearch() });
 }

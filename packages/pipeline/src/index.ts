@@ -5,6 +5,7 @@ export * from "./generation-schemas";
 export * from "./input-schema";
 export * from "./link-discovery";
 export * from "./pipeline";
+export * from "./public-discussion-search";
 export * from "./retry";
 export * from "./robots";
 export * from "./safe-fetch";

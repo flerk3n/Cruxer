@@ -2,6 +2,7 @@ import { KitBuilder } from "@/components/kit-builder";
 
 export const metadata = { title: "Atlas · Senior Frontend Engineer" };
 
-export default function KitPage() {
-  return <KitBuilder />;
+export default async function KitPage({ params }: { params: Promise<{ kitId: string }> }) {
+  const { kitId } = await params;
+  return <KitBuilder kitId={kitId} />;
 }

@@ -57,6 +57,41 @@ export type GenerationRun = {
   updatedAt: string;
 };
 export type CreateKitInput = { jd: string; companyUrl: string; days: number };
+export type QuestionCategory = "technical" | "behavioural" | "system-design" | "company-fit";
+export type KitRequirement = { id: string; text: string; kind: "technical" | "behavioural" | "domain"; priority: "must" | "nice" };
+export type KitQuestion = {
+  id: string;
+  requirement_ids: string[];
+  category: QuestionCategory;
+  prompt: string;
+  answer_outline: string;
+  difficulty: 1 | 2 | 3;
+};
+export type KitFlashcard = { id: string; front: string; back: string; requirement_ids: string[] };
+export type PersistedKit = {
+  source: { company: string; company_url: string; role: string; location: string; jd_chars: number; researched_at: string; pages_used: string[] };
+  company_brief: { summary: string; what_they_do: string; sources: string[] };
+  role: { title: string; seniority: string; responsibilities: string[]; requirements: KitRequirement[] };
+  questions: KitQuestion[];
+  flashcards: KitFlashcard[];
+  schedule: { days_available: number; days: Array<{ day: number; focus: string; question_ids: string[]; minutes: number }> };
+  coverage: { uncovered_requirement_ids: string[]; passes: number };
+};
+export type KitEditorState = {
+  questions?: Record<string, { manual?: boolean; edited?: boolean; pinned?: boolean }>;
+  flashcards?: Record<string, { manual?: boolean; edited?: boolean; pinned?: boolean }>;
+};
+export type KitDocument = {
+  id: string;
+  status: KitStatus;
+  revision: number;
+  generationRunId?: string;
+  kit?: PersistedKit;
+  editor?: KitEditorState;
+  createdAt: string;
+  updatedAt: string;
+};
+export type PracticeProgress = { flashcardId: string; confidence: 1 | 2 | 3; reviewedAt?: string; updatedAt?: string };
 
 function endpoint(path: string): string {
   return `${apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -103,6 +138,10 @@ function json(body: unknown): RequestInit {
   return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
+function patch(body: unknown): RequestInit {
+  return { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
 export const api = {
   register: (input: { email: string; password: string }) => request<AuthResponse>("/auth/register", json(input)),
   login: (input: { email: string; password: string }) => request<AuthResponse>("/auth/login", json(input)),
@@ -111,6 +150,17 @@ export const api = {
   listKits: () => request<{ kits: KitSummary[] }>("/kits"),
   /** Creates the lightweight draft that the generation coordinator will populate. */
   createKit: (input: CreateKitInput) => request<{ kit: { id: string } }>("/kits", json(input)),
+  getKit: (kitId: string) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}`),
+  addQuestion: (kitId: string, revision: number, question: KitQuestion) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/questions`, json({ revision, question })),
+  updateQuestion: (kitId: string, questionId: string, revision: number, changes: Partial<Omit<KitQuestion, "id">> & { pinned?: boolean }) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/questions/${encodeURIComponent(questionId)}`, patch({ revision, ...changes })),
+  deleteQuestion: (kitId: string, questionId: string, revision: number) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/questions/${encodeURIComponent(questionId)}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision }) }),
+  reorderQuestions: (kitId: string, revision: number, questionIds: string[]) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/questions/reorder`, json({ revision, questionIds })),
+  addFlashcard: (kitId: string, revision: number, flashcard: KitFlashcard) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/flashcards`, json({ revision, flashcard })),
+  updateFlashcard: (kitId: string, flashcardId: string, revision: number, changes: Partial<Omit<KitFlashcard, "id">> & { pinned?: boolean }) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/flashcards/${encodeURIComponent(flashcardId)}`, patch({ revision, ...changes })),
+  deleteFlashcard: (kitId: string, flashcardId: string, revision: number) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/flashcards/${encodeURIComponent(flashcardId)}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision }) }),
+  regenerate: (kitId: string, revision: number, section: "questions" | "flashcards", category?: QuestionCategory) => request<{ kit?: KitDocument; generationRun?: Pick<GenerationRun, "id" | "kitId"> }>(`/kits/${encodeURIComponent(kitId)}/regenerate`, json({ revision, section, ...(category ? { category } : {}) })),
+  recordPractice: (kitId: string, flashcardId: string, revision: number, confidence: 1 | 2 | 3) => request<{ kit: KitDocument; progress: PracticeProgress }>(`/kits/${encodeURIComponent(kitId)}/practice/${encodeURIComponent(flashcardId)}`, json({ revision, confidence })),
+  getPractice: (kitId: string) => request<{ progress: PracticeProgress[] }>(`/kits/${encodeURIComponent(kitId)}/practice`),
   startGeneration: (kitId: string) => request<{ generationRun: Pick<GenerationRun, "id" | "kitId"> }>(`/kits/${encodeURIComponent(kitId)}/generate`, { method: "POST" }),
   getGenerationRun: (runId: string) => request<{ generationRun: GenerationRun }>(`/generation-runs/${encodeURIComponent(runId)}`)
 };

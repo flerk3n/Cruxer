@@ -15,6 +15,7 @@
 | Research/generation pipeline | Generation complete | Gemini 3.1 Flash-Lite structured generation, JD evidence checks, source-safe crawling, Tavily public-discussion research, separate question categories, coverage correction/fallback, deterministic schedule, and final Appendix A validation are implemented. |
 | Generated study material | Complete | Evidence matching tolerates harmless provider whitespace/punctuation changes, source-grounded JD-line fallback prevents empty requirement sets for substantive postings, and question-derived flashcards cover valid empty-card responses. |
 | Frontend | Core flow complete | Live auth/dashboard/generation polling, optimistic persisted builder edits, conflict reload, scoped regeneration states, practice confidence, and the Readiness Runway/activity graph are implemented. |
+| Workspace experience | Complete | The dashboard is now user-scoped: it combines all ready kits into readiness totals, per-kit progress, and one 35-day activity graph. Practice is a kit selector, Settings is a real account/preferences page, and `⌘K`/`Ctrl+K` opens workspace navigation. |
 | Local generation reliability | Complete | Fixed first-time generation persistence: Mongoose’s empty optional nested regeneration object no longer routes normal runs through regeneration merge logic. Failed runs now offer retry and safe stage-aware diagnostics. |
 | Deployment and walkthrough | Configuration complete | Render Blueprint, Vercel rewrite configuration, environment templates, and a submission README are committed. Public URLs and walkthrough recording await service-account access. |
 
@@ -57,6 +58,8 @@
 - Removed Atlas/sample content from the kit and standalone practice routes. Empty generated material is shown honestly rather than rendered as a demo. Re-ran the affected local Trao kit successfully: 9 requirements, 15 questions, and 12 flashcards persisted.
 - Re-verified: 26 shared tests, 8 API tests, all workspace type checks, production web build, and whitespace validation pass.
 - Scoped authentication rate limiting to password-bearing login/registration requests. Dashboard `GET /auth/session` reads are no longer counted as credential attempts; a regression test verifies 30 authenticated session reads remain available. Re-verified with 26 shared tests, 9 API tests, workspace type checks, and a production web build.
+- Moved readiness and daily effort from kit pages to a user-scoped workspace dashboard. The new authenticated aggregate endpoint combines all ready-kit flashcard progress and activity by calendar day without fabricating missed effort. Rebuilt the overview as a real dashboard with welcome state, quote, workspace totals, combined progress, GitHub-style graph, and kit list.
+- Added a role-specific practice library, functioning account/settings route, and accessible `⌘K`/`Ctrl+K` command palette. Removed the obsolete kit-specific Readiness Runway component. Live local endpoint verification returned aggregated ready kits and a 35-day activity series.
 
 ## Active commitments
 

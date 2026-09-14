@@ -124,6 +124,20 @@ export type KitActivity = {
   today?: ActivityDay;
   schedule: StudyScheduleSummary | null;
 };
+export type WorkspaceKitProgress = {
+  kitId: string;
+  company: string;
+  roleTitle: string;
+  totalCards: number;
+  reviewedCards: number;
+  progressPercent: number;
+  questionCount: number;
+};
+export type WorkspaceOverview = {
+  overview: { activeKits: number; totalCards: number; reviewedCards: number; totalQuestions: number; progressPercent: number };
+  kits: WorkspaceKitProgress[];
+  activity: Omit<KitActivity, "schedule">;
+};
 
 function endpoint(path: string): string {
   return `${apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -180,6 +194,12 @@ export const api = {
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   session: () => request<AuthResponse>("/auth/session"),
   listKits: () => request<{ kits: KitSummary[] }>("/kits"),
+  getWorkspaceOverview: (input: { days?: number; timeZone?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (input.days) query.set("days", String(input.days));
+    if (input.timeZone) query.set("timeZone", input.timeZone);
+    return request<WorkspaceOverview>(`/workspace/overview${query.size ? `?${query}` : ""}`);
+  },
   /** Creates the lightweight draft that the generation coordinator will populate. */
   createKit: (input: CreateKitInput) => request<{ kit: { id: string } }>("/kits", json(input)),
   getKit: (kitId: string) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}`),

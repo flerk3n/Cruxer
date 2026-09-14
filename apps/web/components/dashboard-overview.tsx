@@ -1,97 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CalendarDays, Clock3, Plus, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpenCheck, CalendarDays, Clock3, Plus, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
-import { api, apiErrorMessage, isUnauthenticated, type KitSummary, type StudyScheduleSummary, type User } from "@/lib/api";
+import { api, apiErrorMessage, isUnauthenticated, type ActivityDay, type KitSummary, type User, type WorkspaceOverview } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type ScreenState = "loading" | "ready" | "error";
-
-function relativeTime(value: string): string {
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000));
-  if (minutes < 1) return "Updated just now";
-  if (minutes < 60) return `Updated ${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return `Updated ${hours}h ago`;
-}
-
-function daysAvailable(kit: KitSummary): string {
-  // The summary endpoint does not expose the interview window; show the reliable
-  // persisted update signal instead of inventing a countdown.
-  return kit.status === "generating" ? "Generation in progress" : "Preparation kit";
-}
+function browserTimeZone() { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+function relativeTime(value: string) { const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000)); return minutes < 1 ? "Updated just now" : minutes < 60 ? `Updated ${minutes}m ago` : `Updated ${Math.round(minutes / 60)}h ago`; }
+function intensity(units: number) { return units <= 0 ? "bg-line" : units === 1 ? "bg-success/25" : units === 2 ? "bg-success/50" : units <= 4 ? "bg-success/75" : "bg-success"; }
 
 export function DashboardOverview() {
   const [state, setState] = useState<ScreenState>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [kits, setKits] = useState<KitSummary[]>([]);
+  const [workspace, setWorkspace] = useState<WorkspaceOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const load = useCallback(async () => {
-    setState("loading");
-    setError(null);
+    setState("loading"); setError(null);
     try {
-      const [{ user: sessionUser }, { kits: nextKits }] = await Promise.all([api.session(), api.listKits()]);
-      setUser(sessionUser);
-      setKits(nextKits);
-      setState("ready");
-    } catch (cause) {
-      if (isUnauthenticated(cause)) {
-        window.location.assign("/login");
-        return;
-      }
-      setError(apiErrorMessage(cause));
-      setState("error");
-    }
+      const [{ user: sessionUser }, { kits: nextKits }, nextWorkspace] = await Promise.all([api.session(), api.listKits(), api.getWorkspaceOverview({ days: 35, timeZone: browserTimeZone() })]);
+      setUser(sessionUser); setKits(nextKits); setWorkspace(nextWorkspace); setState("ready");
+    } catch (cause) { if (isUnauthenticated(cause)) { window.location.assign("/login"); return; } setError(apiErrorMessage(cause)); setState("error"); }
   }, []);
-
   useEffect(() => { void load(); }, [load]);
-
   if (state === "loading") return <DashboardSkeleton />;
-  if (state === "error") return <section className="mx-auto max-w-xl py-16 text-center"><p className="eyebrow">Workspace unavailable</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">We could not load your kits.</h1><p className="mt-3 text-sm text-muted-ink">{error}</p><Button className="mt-6" onClick={() => void load()}><RefreshCw size={16} />Try again</Button></section>;
-
-  const firstName = user?.email.split("@")[0] || "there";
-  return <><div className="flex flex-wrap items-end justify-between gap-5"><div><p className="eyebrow">Your preparation workspace</p><h1 className="mt-2 text-[clamp(1.75rem,4vw,2rem)] font-semibold tracking-tight">Welcome back, {firstName}.</h1><p className="mt-2 text-sm text-muted-ink">Focus on the role that matters next.</p></div><Link href="/dashboard/new"><Button><Plus size={16} />Create a kit</Button></Link></div>
-    <section className="mt-10"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold tracking-tight">Your kits</h2><span className="text-xs text-muted-ink">{kits.length} {kits.length === 1 ? "kit" : "kits"}</span></div>
-      {kits.length === 0 ? <EmptyState /> : <div className="grid gap-3">{kits.map((kit) => <KitRow key={kit.id} kit={kit} />)}</div>}
-    </section>
-  </>;
+  if (state === "error") return <section className="mx-auto max-w-xl py-16 text-center"><p className="eyebrow">Workspace unavailable</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">We could not load your dashboard.</h1><p className="mt-3 text-sm text-muted-ink">{error}</p><Button className="mt-6" onClick={() => void load()}><RefreshCw size={16} />Try again</Button></section>;
+  const data = workspace!;
+  const metrics = new Map(data.kits.map((kit) => [kit.kitId, kit]));
+  const name = user?.email.split("@")[0] || "there";
+  return <div className="space-y-10"><section className="relative overflow-hidden rounded-card border bg-surface px-6 py-8 sm:px-8"><div className="absolute -right-12 -top-20 h-56 w-56 rounded-full bg-signal/10 blur-3xl" aria-hidden="true" /><div className="relative flex flex-wrap items-end justify-between gap-6"><div><p className="eyebrow">Your preparation workspace</p><h1 className="mt-2 text-[clamp(2rem,4vw,3rem)] font-semibold tracking-tight">Welcome back, {name}.</h1><p className="editorial-title mt-4 max-w-xl text-2xl leading-tight sm:text-3xl">“Small, deliberate practice makes the hard conversation feel familiar.”</p></div><Link href="/dashboard/new"><Button><Plus size={16} />Create a kit</Button></Link></div></section>
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace totals"><Metric icon={Sparkles} label="Active kits" value={data.overview.activeKits} detail="Roles in progress" /><Metric icon={BookOpenCheck} label="Cards reviewed" value={`${data.overview.reviewedCards}/${data.overview.totalCards}`} detail="Across all active kits" /><Metric icon={BarChart3} label="Overall progress" value={`${data.overview.progressPercent}%`} detail="Based on unique cards reviewed" /><Metric icon={CalendarDays} label="Interview prompts" value={data.overview.totalQuestions} detail="Ready to rehearse" /></section>
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(19rem,0.8fr)]"><Card className="p-5 sm:p-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Combined readiness</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Progress across every active kit</h2></div><span className="font-mono text-sm text-signal">{data.overview.progressPercent}%</span></div><div className="mt-6 h-3 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-signal transition-[width] duration-500" style={{ width: `${data.overview.progressPercent}%` }} /></div><div className="mt-6 space-y-4">{data.kits.length > 0 ? data.kits.map((kit) => <div key={kit.kitId}><div className="flex items-center justify-between gap-4 text-sm"><span className="min-w-0 truncate font-medium">{kit.company} · {kit.roleTitle}</span><span className="shrink-0 text-xs text-muted-ink">{kit.reviewedCards}/{kit.totalCards} cards</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet" style={{ width: `${kit.progressPercent}%` }} /></div></div>) : <p className="text-sm text-muted-ink">Create a kit to begin tracking preparation.</p>}</div></Card><EffortGraph activity={data.activity.series} /></section>
+    <section><div className="mb-4 flex items-end justify-between gap-4"><div><p className="eyebrow">Your kits</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Keep the next conversation in view.</h2></div><span className="text-xs text-muted-ink">{kits.length} {kits.length === 1 ? "kit" : "kits"}</span></div>{kits.length === 0 ? <EmptyState /> : <div className="grid gap-3">{kits.map((kit) => <KitRow key={kit.id} kit={kit} progress={metrics.get(kit.id)} />)}</div>}</section>
+  </div>;
 }
 
-function KitRow({ kit }: { kit: KitSummary }) {
-  const status = kit.status === "ready" ? "ready" : kit.status === "generating" ? "researching" : kit.status === "failed" ? "attention" : "partial";
-  return <Card className="group p-5 transition duration-150 motion-safe:hover:-translate-y-0.5 hover:bg-surface-raised"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[15px] font-medium">{kit.roleTitle || "Untitled role"}</p><p className="mt-1 text-sm text-muted-ink">{kit.company || "Company research pending"}</p></div><StatusPill status={status} /></div>{kit.status === "ready" && <DashboardRunway kitId={kit.id} />}<div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-ink"><span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />{daysAvailable(kit)}</span><span className="inline-flex items-center gap-1.5"><Clock3 size={14} />{relativeTime(kit.updatedAt)}</span><Link href={`/dashboard/kits/${kit.id}`} className="ml-auto inline-flex items-center gap-1.5 font-medium text-ink group-hover:text-signal">{kit.status === "generating" ? "View progress" : "Open kit"} <ArrowRight size={14} /></Link></div></Card>;
-}
-
-type RunwayMeta = { currentDay: number; totalDays: number; remainingDays: number; focus: string };
-
-function browserTimeZone(): string { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
-
-function DashboardRunway({ kitId }: { kitId: string }) {
-  const [meta, setMeta] = useState<RunwayMeta | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    void api.getActivity(kitId, { days: 7, timeZone: browserTimeZone() }).then((activity) => {
-      if (!alive) return;
-      if (activity.schedule) setMeta(runwayMeta(activity.schedule));
-    }).catch(() => {
-      // The row still remains useful if detailed runway data is temporarily unavailable.
-    });
-    return () => { alive = false; };
-  }, [kitId]);
-
-  if (!meta) return null;
-  return <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-canvas px-3 py-2.5 text-xs"><Sparkles size={14} className="text-signal" aria-hidden="true" /><span className="font-medium">Readiness runway · Day {meta.currentDay} of {meta.totalDays}</span><span className="text-muted-ink">{meta.focus} · {meta.remainingDays === 0 ? "plan complete" : `${meta.remainingDays} study ${meta.remainingDays === 1 ? "day" : "days"} left`}</span></div>;
-}
-
-function runwayMeta(schedule: StudyScheduleSummary): RunwayMeta {
-  return { currentDay: schedule.dayNumber, totalDays: schedule.totalDays, remainingDays: schedule.daysRemaining, focus: schedule.focus };
-}
-
-function EmptyState() { return <Card className="overflow-hidden p-6 sm:p-8"><p className="editorial-title max-w-xl text-3xl leading-none">Give Cruxer a role, a company, and the time you have.</p><p className="mt-4 max-w-lg text-sm leading-6 text-muted-ink">It will make its research and coverage visible so you know exactly what you are preparing for.</p><Link href="/dashboard/new" className="mt-6 inline-flex items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Start a new kit <ArrowRight size={15} /></Link></Card>; }
-
-function DashboardSkeleton() { return <div aria-busy="true" aria-label="Loading your workspace"><div className="h-3 w-36 animate-pulse rounded bg-line" /><div className="mt-4 h-9 w-72 max-w-full animate-pulse rounded bg-line" /><div className="mt-12 space-y-3">{[0, 1].map((item) => <Card key={item} className="h-36 animate-pulse bg-surface-raised"><span className="sr-only">Loading kit</span></Card>)}</div></div>; }
+function Metric({ icon: Icon, label, value, detail }: { icon: typeof Sparkles; label: string; value: string | number; detail: string }) { return <Card className="p-5"><div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-ink">{label}</span><Icon size={16} className="text-signal" /></div><p className="mt-5 text-2xl font-semibold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted-ink">{detail}</p></Card>; }
+function EffortGraph({ activity }: { activity: ActivityDay[] }) { const [active, setActive] = useState<ActivityDay | undefined>(activity.at(-1)); return <Card className="p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">Daily effort</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Your study rhythm</h2></div><span className="text-xs text-muted-ink">Last 5 weeks</span></div><div className="mt-6 overflow-x-auto"><div className="grid min-w-[18rem] grid-flow-col grid-rows-5 gap-1.5">{activity.map((day) => <button key={day.date} type="button" className={cn("h-7 w-7 rounded-md transition-transform hover:scale-110 focus-visible:scale-110", intensity(day.effortUnits))} onFocus={() => setActive(day)} onMouseEnter={() => setActive(day)} onClick={() => setActive(day)} aria-label={`${day.date}: ${day.effortUnits} effort units`} />)}</div></div><p className="mt-4 min-h-5 text-xs text-muted-ink">{active ? `${active.date}: ${active.effortUnits === 0 ? "No saved effort" : `${active.effortUnits} effort units`}.` : "No saved effort yet."}</p><div className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-ink"><span>Less</span>{[0, 1, 2, 3, 5].map((value) => <i key={value} className={cn("h-3.5 w-3.5 rounded-[3px]", intensity(value))} />)}<span>More</span></div></Card>; }
+function KitRow({ kit, progress }: { kit: KitSummary; progress?: WorkspaceOverview["kits"][number] }) { const status = kit.status === "ready" ? "ready" : kit.status === "generating" ? "researching" : kit.status === "failed" ? "attention" : "partial"; return <Card className="group p-5 transition duration-150 motion-safe:hover:-translate-y-0.5 hover:bg-surface-raised"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[15px] font-medium">{kit.roleTitle || "Untitled role"}</p><p className="mt-1 text-sm text-muted-ink">{kit.company || "Company research pending"}</p></div><StatusPill status={status} /></div>{progress && <div className="mt-5"><div className="flex justify-between text-xs text-muted-ink"><span>{progress.reviewedCards}/{progress.totalCards} flashcards reviewed</span><span>{progress.progressPercent}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet" style={{ width: `${progress.progressPercent}%` }} /></div></div>}<div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-ink"><span className="inline-flex items-center gap-1.5"><Clock3 size={14} />{relativeTime(kit.updatedAt)}</span><Link href={`/dashboard/kits/${kit.id}`} className="ml-auto inline-flex items-center gap-1.5 font-medium text-ink group-hover:text-signal">{kit.status === "generating" ? "View progress" : "Open kit"} <ArrowRight size={14} /></Link></div></Card>; }
+function EmptyState() { return <Card className="overflow-hidden p-6 sm:p-8"><p className="editorial-title max-w-xl text-3xl leading-none">Give Cruxer a role, a company, and the time you have.</p><p className="mt-4 max-w-lg text-sm leading-6 text-muted-ink">It will make its research and coverage visible so you know exactly what you are preparing for.</p><Link href="/dashboard/new" className="mt-6 inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Start a new kit <ArrowRight size={15} /></Link></Card>; }
+function DashboardSkeleton() { return <div aria-busy="true" aria-label="Loading dashboard"><div className="h-3 w-36 animate-pulse rounded bg-line" /><div className="mt-4 h-10 w-80 max-w-full animate-pulse rounded bg-line" /><div className="mt-10 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((item) => <div key={item} className="h-32 animate-pulse rounded-card border bg-surface-raised" />)}</div></div>; }

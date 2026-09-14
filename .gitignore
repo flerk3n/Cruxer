@@ -17,3 +17,9 @@ coverage/
 
 # Deployment tooling
 .vercel/
+
+# Local planning and agent tooling
+design.md
+plan.md
+PROGRESS.md
+.kiro/

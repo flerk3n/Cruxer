@@ -20,6 +20,7 @@ import {
   GripVertical,
   Layers3,
   ListChecks,
+  LoaderCircle,
   Pencil,
   RotateCcw,
   Sparkles,
@@ -66,6 +67,10 @@ const categoryLabels: Record<Exclude<Category, "all">, string> = {
   "company-fit": "Company fit"
 };
 
+function regenerationLabel(category: Category): string {
+  return category === "all" ? "All" : categoryLabels[category];
+}
+
 const viewItems: Array<{ id: View; label: string; icon: typeof FileText }> = [
   { id: "overview", label: "Overview", icon: FileText },
   { id: "questions", label: "Questions", icon: ListChecks },
@@ -89,7 +94,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ prompt: "", answer: "", category: "technical" as Question["category"] });
   const [savedId, setSavedId] = useState<string | null>(null);
-  const [regenerating, setRegenerating] = useState<Exclude<Category, "all"> | null>(null);
+  const [regenerating, setRegenerating] = useState<Category | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [addingQuestion, setAddingQuestion] = useState(false);
@@ -253,13 +258,24 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     if (!regenerating) return;
     const changedCategory = regenerating;
     setPendingAction("regenerate");
+    setGenerationRun(null);
+    setRegenerating(null);
     try {
       const document = kitRef.current;
       if (!document?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
-      const response = await api.regenerate(kitId, document.revision, "questions", changedCategory);
-      if (response.kit) applyRemote(response.kit);
-      setRegenerating(null);
-      setNotice(response.generationRun ? `${categoryLabels[changedCategory]} regeneration started. Edited and pinned questions will be preserved.` : `${categoryLabels[changedCategory]} questions refreshed. Your edited questions stayed in place.`);
+      const response = await api.regenerate(kitId, document.revision, "questions", changedCategory === "all" ? undefined : changedCategory);
+      if (response.generationRun) {
+        const result = await pollGenerationRun(response.generationRun.id, { onUpdate: setGenerationRun });
+        if (result.status !== "ready") { setNotice(result.terminalError?.message ?? `${regenerationLabel(changedCategory)} question refresh could not be completed.`); return; }
+        const { kit } = await api.getKit(kitId);
+        applyRemote(kit);
+        const generatedCount = kit.kit?.questions.filter((question) => changedCategory === "all" || question.category === changedCategory).length ?? 0;
+        setNotice(generatedCount > 0 ? `${regenerationLabel(changedCategory)} questions refreshed. Edited and pinned questions stayed in place.` : `No ${regenerationLabel(changedCategory).toLowerCase()} questions were generated because this role has no matching requirements.`);
+        return;
+      }
+      if (!response.kit) throw new CruxerApiError("Cruxer did not start the question refresh.", 0, "GENERATION_UNAVAILABLE");
+      applyRemote(response.kit);
+      setNotice(`${regenerationLabel(changedCategory)} questions refreshed. Edited and pinned questions stayed in place.`);
     } catch (cause) {
       setNotice(`${apiErrorMessage(cause)} Your questions have not been changed.`);
     } finally { setPendingAction(null); }
@@ -416,6 +432,8 @@ export function KitBuilder({ kitId }: { kitId: string }) {
           onAdd={() => setAddingQuestion(true)}
           saving={pendingAction}
           onRegenerate={setRegenerating}
+          regenerating={pendingAction === "regenerate"}
+          generationRun={generationRun}
         />}
         {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={sessionReviewed} sessionConfidence={sessionConfidence} complete={sessionComplete} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => restartFlashcardSession("Practice session restarted.")} onRegenerate={regenerateFlashcards} regenerating={pendingAction === "regenerate-flashcards"} />}
         {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} />}
@@ -423,7 +441,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     </div>
 
     {notice && <div className="fixed bottom-20 right-4 z-30 max-w-sm rounded-float border bg-surface px-4 py-3 text-sm shadow-ambient lg:bottom-6" role="status"><div className="flex items-start gap-2"><CheckCircle2 size={17} className="mt-0.5 shrink-0 text-success" /><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="-mr-1 -mt-1 grid h-8 w-8 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Dismiss message"><X size={15} /></button></div></div>}
-    {regenerating && <RegenerationDialog category={regenerating} editedCount={questions.filter((question) => question.category === regenerating && question.edited).length} replaceCount={questions.filter((question) => question.category === regenerating && !question.edited).length} onCancel={() => setRegenerating(null)} onConfirm={confirmRegeneration} />}
+    {regenerating && <RegenerationDialog category={regenerating} editedCount={questions.filter((question) => (regenerating === "all" || question.category === regenerating) && question.edited).length} replaceCount={questions.filter((question) => (regenerating === "all" || question.category === regenerating) && !question.edited).length} onCancel={() => setRegenerating(null)} onConfirm={confirmRegeneration} />}
     {addingQuestion && <AddQuestionDialog draft={addDraft} onDraft={setAddDraft} onCancel={() => setAddingQuestion(false)} onConfirm={addQuestion} />}
     {deletingQuestionId && <DeleteQuestionDialog question={questions.find((question) => question.id === deletingQuestionId)} onCancel={() => setDeletingQuestionId(null)} onConfirm={() => { void deleteQuestion(deletingQuestionId); setDeletingQuestionId(null); }} />}
   </div>;
@@ -441,13 +459,15 @@ function Source({ href, label }: { href: string; label: string }) { return <a hr
 
 type QuestionsViewProps = {
   category: Category; editingId: string | null; draft: { prompt: string; answer: string; category: Question["category"] }; questions: Question[]; allQuestions: Question[]; savedId: string | null; saving: string | null;
-  onCategory: (category: Category) => void; onDraft: (draft: { prompt: string; answer: string; category: Question["category"] }) => void; onEdit: (question: Question) => void; onCancel: () => void; onSave: (id: string) => void; onMove: (id: string, direction: -1 | 1) => void; onDelete: (id: string) => void; onAdd: () => void; onRegenerate: (category: Exclude<Category, "all">) => void;
+  regenerating: boolean; generationRun: GenerationRun | null;
+  onCategory: (category: Category) => void; onDraft: (draft: { prompt: string; answer: string; category: Question["category"] }) => void; onEdit: (question: Question) => void; onCancel: () => void; onSave: (id: string) => void; onMove: (id: string, direction: -1 | 1) => void; onDelete: (id: string) => void; onAdd: () => void; onRegenerate: (category: Category) => void;
 };
 
-function QuestionsView({ category, editingId, draft, questions, allQuestions, savedId, saving, onCategory, onDraft, onEdit, onCancel, onSave, onMove, onDelete, onAdd, onRegenerate }: QuestionsViewProps) {
+function QuestionsView({ category, editingId, draft, questions, allQuestions, savedId, saving, regenerating, generationRun, onCategory, onDraft, onEdit, onCancel, onSave, onMove, onDelete, onAdd, onRegenerate }: QuestionsViewProps) {
   const categories: Category[] = ["all", "technical", "behavioural", "system-design", "company-fit"];
-  const selectedCategory = category === "all" ? "technical" : category;
-  return <section><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Question bank</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{allQuestions.length} questions · all covered</h2></div><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={onAdd}><Pencil size={15} />Add question</Button><Button variant="secondary" size="sm" onClick={() => onRegenerate(selectedCategory)} disabled={saving === "regenerate"}><Sparkles size={15} />{saving === "regenerate" ? "Starting…" : `Regenerate ${category === "all" ? "technical" : categoryLabels[selectedCategory]}`}</Button></div></div><div className="mt-5 flex gap-5 overflow-x-auto border-b" role="tablist" aria-label="Question categories">{categories.map((item) => { const count = item === "all" ? allQuestions.length : allQuestions.filter((question) => question.category === item).length; const active = item === category; return <button key={item} type="button" role="tab" aria-selected={active} onClick={() => onCategory(item)} className={cn("relative min-h-11 shrink-0 text-[13px] font-medium", active ? "text-ink" : "text-muted-ink hover:text-ink")}>{item === "all" ? "All" : categoryLabels[item]} <span className="ml-1 text-xs">{count}</span>{active && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-signal" />}</button>; })}</div><div className="mt-5 space-y-3">{questions.map((question, index) => <QuestionCard key={question.id} question={question} index={index} total={questions.length} editing={editingId === question.id} draft={draft} saved={savedId === question.id} saving={saving === question.id || saving === "reorder"} onDraft={onDraft} onEdit={() => onEdit(question)} onCancel={onCancel} onSave={() => onSave(question.id)} onMove={onMove} onDelete={() => onDelete(question.id)} />)}</div></section>;
+  const activeStep = generationRun?.steps.find((step) => step.status === "running");
+  const emptyLabel = category === "all" ? "questions" : `${regenerationLabel(category).toLowerCase()} questions`;
+  return <section><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Question bank</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{allQuestions.length} questions · all covered</h2></div><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={onAdd} disabled={regenerating}><Pencil size={15} />Add question</Button><Button variant="secondary" size="sm" onClick={() => onRegenerate(category)} disabled={regenerating}><Sparkles size={15} />{regenerating ? "Refreshing…" : `Regenerate ${regenerationLabel(category)} questions`}</Button></div></div><div className="mt-5 flex gap-5 overflow-x-auto border-b" role="tablist" aria-label="Question categories">{categories.map((item) => { const count = item === "all" ? allQuestions.length : allQuestions.filter((question) => question.category === item).length; const active = item === category; return <button key={item} type="button" role="tab" aria-selected={active} onClick={() => onCategory(item)} disabled={regenerating} className={cn("relative min-h-11 shrink-0 text-[13px] font-medium disabled:cursor-wait disabled:opacity-60", active ? "text-ink" : "text-muted-ink hover:text-ink")}>{item === "all" ? "All" : categoryLabels[item]} <span className="ml-1 text-xs">{count}</span>{active && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-signal" />}</button>; })}</div>{regenerating && <Card className="mt-5 overflow-hidden border-violet/30 bg-violet/5 p-4"><div role="status"><div className="flex items-start gap-3"><LoaderCircle size={18} className="mt-0.5 shrink-0 animate-spin text-violet" /><div><p className="text-sm font-medium">Refreshing your researched questions</p><p className="mt-1 text-xs leading-5 text-muted-ink">{activeStep?.message ?? (activeStep ? `${activeStep.name.replace(/-/g, " ")} in progress…` : "Starting the research and generation run…")} Your edited and pinned questions will stay in place.</p></div></div><div className="mt-4 h-1 overflow-hidden rounded-full bg-violet/15"><div className="h-full w-2/3 animate-pulse rounded-full bg-violet" /></div></div></Card>}<div className="mt-5 space-y-3">{questions.length > 0 ? questions.map((question, index) => <QuestionCard key={question.id} question={question} index={index} total={questions.length} editing={editingId === question.id} draft={draft} saved={savedId === question.id} saving={saving === question.id || saving === "reorder"} onDraft={onDraft} onEdit={() => onEdit(question)} onCancel={onCancel} onSave={() => onSave(question.id)} onMove={onMove} onDelete={() => onDelete(question.id)} />) : !regenerating && <Card className="p-5"><p className="text-sm font-medium">No {emptyLabel} yet.</p><p className="mt-1 text-sm leading-6 text-muted-ink">Refresh this category to generate questions from matching role requirements. If none are stated in the job description, Cruxer will explain that instead of inventing prompts.</p></Card>}</div></section>;
 }
 
 type QuestionCardProps = { question: Question; index: number; total: number; editing: boolean; draft: { prompt: string; answer: string; category: Question["category"] }; saved: boolean; saving: boolean; onDraft: (draft: { prompt: string; answer: string; category: Question["category"] }) => void; onEdit: () => void; onCancel: () => void; onSave: () => void; onMove: (id: string, direction: -1 | 1) => void; onDelete: () => void; };
@@ -474,8 +494,8 @@ function ScheduleView({ expandedDay, onToggle, questions, plan }: { expandedDay:
   return <section><div><p className="eyebrow">Study plan</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{plan.length} days, with a clear next move.</h2><p className="mt-2 text-sm text-muted-ink">Each session starts with the must-have signals before the optional depth.</p></div><ol className="mt-7 space-y-3">{plan.map((day) => { const open = expandedDay === day.day; const sessionQuestions = day.questionIds.map((id) => questions.find((question) => question.id === id)).filter((question): question is Question => Boolean(question)); return <li key={day.day} className="relative pl-12"><span className={cn("absolute left-0 top-5 grid h-8 w-8 place-items-center rounded-full text-xs font-semibold", day.day === 1 ? "bg-signal text-white" : "bg-surface text-muted-ink ring-1 ring-line")}>D{day.day}</span>{day.day < plan.length && <span className="absolute left-4 top-12 h-[calc(100%+0.75rem)] border-l border-dashed" aria-hidden="true" />}<Card className={cn("overflow-hidden", day.day === 1 && "border-signal/40")}><button type="button" onClick={() => onToggle(open ? 0 : day.day)} className="flex min-h-16 w-full items-center justify-between gap-4 px-4 text-left sm:px-5" aria-expanded={open}><span><span className="block text-[15px] font-medium">{day.focus}</span><span className="mt-1 block text-xs text-muted-ink">{sessionQuestions.length} questions · {day.minutes} minutes</span></span>{open ? <ChevronUp size={18} className="text-muted-ink" /> : <ChevronDown size={18} className="text-muted-ink" />}</button>{open && <div className="border-t bg-canvas px-4 py-4 sm:px-5"><p className="text-xs font-medium text-muted-ink">Practice prompts</p><ul className="mt-3 space-y-2">{sessionQuestions.map((question) => <li key={question.id} className="flex gap-2 text-sm leading-6"><CircleHelp size={15} className="mt-1 shrink-0 text-violet" />{question.prompt}</li>)}</ul></div>}</Card></li>; })}</ol></section>;
 }
 
-function RegenerationDialog({ category, editedCount, replaceCount, onCancel, onConfirm }: { category: Exclude<Category, "all">; editedCount: number; replaceCount: number; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="fixed inset-0 z-40 grid place-items-end bg-ink/30 p-4 sm:place-items-center" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="regenerate-title" className="w-full max-w-md rounded-sheet border bg-surface p-5 shadow-ambient sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Scoped regeneration</p><h2 id="regenerate-title" className="mt-1 text-lg font-semibold">Refresh {categoryLabels[category]} questions?</h2></div><button type="button" onClick={onCancel} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Close confirmation"><X size={17} /></button></div><p className="mt-4 text-sm leading-6 text-muted-ink">{replaceCount} generated {replaceCount === 1 ? "question will" : "questions will"} be replaced with a new researched set. {editedCount > 0 ? `Your ${editedCount} edited ${editedCount === 1 ? "question will" : "questions will"} stay exactly as written.` : "You have no edited questions in this category to preserve."}</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onCancel}>Keep current questions</Button><Button onClick={onConfirm}><Sparkles size={15} />Refresh {categoryLabels[category]}</Button></div></section></div>;
+function RegenerationDialog({ category, editedCount, replaceCount, onCancel, onConfirm }: { category: Category; editedCount: number; replaceCount: number; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-40 grid place-items-end bg-ink/30 p-4 sm:place-items-center" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="regenerate-title" className="w-full max-w-md rounded-sheet border bg-surface p-5 shadow-ambient sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Scoped regeneration</p><h2 id="regenerate-title" className="mt-1 text-lg font-semibold">Refresh {regenerationLabel(category)} questions?</h2></div><button type="button" onClick={onCancel} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Close confirmation"><X size={17} /></button></div><p className="mt-4 text-sm leading-6 text-muted-ink">{replaceCount} generated {replaceCount === 1 ? "question will" : "questions will"} be replaced with a new researched set. {editedCount > 0 ? `Your ${editedCount} edited ${editedCount === 1 ? "question will" : "questions will"} stay exactly as written.` : `You have no edited ${category === "all" ? "questions" : "questions in this category"} to preserve.`}</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onCancel}>Keep current questions</Button><Button onClick={onConfirm}><Sparkles size={15} />Refresh {regenerationLabel(category)}</Button></div></section></div>;
 }
 
 function AddQuestionDialog({ draft, onDraft, onCancel, onConfirm }: { draft: { prompt: string; answer: string; category: Question["category"] }; onDraft: (next: { prompt: string; answer: string; category: Question["category"] }) => void; onCancel: () => void; onConfirm: () => void }) {

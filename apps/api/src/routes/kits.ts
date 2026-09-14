@@ -4,9 +4,20 @@ import { z } from "zod";
 import type { AppConfig } from "../config/env.js";
 import { Kit, type BuilderEditorState, type KitRecord } from "../db/models/kit.js";
 import { PracticeProgress } from "../db/models/practice-progress.js";
+import { StudyActivity } from "../db/models/study-activity.js";
 import { normalizeEditor, rebuildQuestionDerivedFields } from "../lib/builder.js";
 import { ApiError } from "../lib/errors.js";
 import { persistedKitSchema, type PersistedKitPayload } from "../lib/kit-validation.js";
+import {
+  DEFAULT_ACTIVITY_DAYS,
+  DEFAULT_TIME_ZONE,
+  MAX_ACTIVITY_DAYS,
+  assertTimeZone,
+  addCalendarDays,
+  buildActivitySeries,
+  buildScheduleSummary,
+  calendarDayAt
+} from "../lib/study-activity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { type GenerationInput, type GenerationOrchestrator } from "../services/generation-orchestrator.js";
 
@@ -72,7 +83,19 @@ const regenerateSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (value.category && value.section !== "questions") ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["category"], message: "A category can only be used when regenerating questions." });
 });
-const practiceConfidenceSchema = z.object({ revision: z.number().int().min(0), confidence: z.union([z.literal(1), z.literal(2), z.literal(3)]) }).strict();
+const timeZoneSchema = z.string().trim().min(1).max(80).transform((value, ctx) => {
+  try { return assertTimeZone(value); } catch { ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Use a valid IANA time zone, such as Asia/Kolkata." }); return z.NEVER; }
+});
+const practiceConfidenceSchema = z.object({
+  revision: z.number().int().min(0),
+  confidence: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  timeZone: timeZoneSchema.optional()
+}).strict();
+const activityQuerySchema = z.object({
+  days: z.coerce.number().int().min(7).max(MAX_ACTIVITY_DAYS).default(DEFAULT_ACTIVITY_DAYS),
+  timeZone: timeZoneSchema.default(DEFAULT_TIME_ZONE)
+}).strict();
+const checkInSchema = z.object({ timeZone: timeZoneSchema.optional() }).strict();
 
 type PersistedKit = KitRecord & { _id: { toString(): string } };
 
@@ -290,7 +313,7 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
     try {
       const kitId = kitIdSchema.parse(req.params.kitId);
       const flashcardId = z.string().trim().min(1).parse(req.params.flashcardId);
-      const { revision, confidence } = practiceConfidenceSchema.parse(req.body);
+      const { revision, confidence, timeZone = DEFAULT_TIME_ZONE } = practiceConfidenceSchema.parse(req.body);
       const kit = await mutateKit(req.auth!.userId, kitId, revision, (draft) => {
         if (!draft.flashcards.some((flashcard) => flashcard.id === flashcardId)) throw new ApiError(404, "FLASHCARD_NOT_FOUND", "The requested flashcard was not found.");
         return draft;
@@ -300,7 +323,50 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
         { $set: { lastConfidence: confidence, lastReviewedAt: new Date() }, $inc: { attempts: 1 } },
         { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
       );
+      await recordFlashcardActivity(req.auth!.userId, kitId, confidence, timeZone);
       res.json({ kit: serializeKit(kit), progress: serializePracticeProgress(progress) });
+    } catch (error) { next(error); }
+  });
+
+  router.get("/:kitId/activity", async (req, res, next) => {
+    try {
+      const kitId = kitIdSchema.parse(req.params.kitId);
+      const { days, timeZone } = activityQuerySchema.parse(req.query);
+      const kit = await Kit.findOne({ _id: kitId, ownerId: req.auth!.userId }).select("kit createdAt").lean();
+      if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
+
+      const todayDate = calendarDayAt(new Date(), timeZone);
+      const from = addCalendarDays(todayDate, -(days - 1));
+      const activity = await StudyActivity.find({
+        ownerId: req.auth!.userId,
+        kitId,
+        day: { $gte: from, $lte: todayDate }
+      }).select("day flashcardReviews lowConfidenceReviews mediumConfidenceReviews highConfidenceReviews checkedIn").lean();
+      const series = buildActivitySeries(from, days, activity);
+
+      res.json({
+        timeZone,
+        range: { from, to: todayDate, days },
+        series,
+        today: series.at(-1),
+        schedule: buildScheduleSummary(kit.kit as PersistedKitPayload | undefined, kit.createdAt, todayDate, timeZone)
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.post("/:kitId/activity/check-in", async (req, res, next) => {
+    try {
+      const kitId = kitIdSchema.parse(req.params.kitId);
+      const { timeZone = DEFAULT_TIME_ZONE } = checkInSchema.parse(req.body);
+      const exists = await Kit.exists({ _id: kitId, ownerId: req.auth!.userId });
+      if (!exists) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
+      const day = calendarDayAt(new Date(), timeZone);
+      const activity = await StudyActivity.findOneAndUpdate(
+        { ownerId: req.auth!.userId, kitId, day },
+        { $set: { checkedIn: true } },
+        { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
+      ).lean();
+      res.status(201).json({ activity: serializeActivityDay(activity) });
     } catch (error) { next(error); }
   });
 
@@ -407,4 +473,24 @@ function serializePracticeProgress(progress: {
     ...(progress.lastReviewedAt ? { lastReviewedAt: progress.lastReviewedAt.toISOString() } : {}),
     updatedAt: progress.updatedAt.toISOString()
   };
+}
+
+async function recordFlashcardActivity(ownerId: string, kitId: string, confidence: 1 | 2 | 3, timeZone: string): Promise<void> {
+  const confidenceField = confidence === 1 ? "lowConfidenceReviews" : confidence === 2 ? "mediumConfidenceReviews" : "highConfidenceReviews";
+  await StudyActivity.findOneAndUpdate(
+    { ownerId, kitId, day: calendarDayAt(new Date(), timeZone) },
+    { $inc: { flashcardReviews: 1, [confidenceField]: 1 } },
+    { upsert: true, setDefaultsOnInsert: true, runValidators: true }
+  );
+}
+
+function serializeActivityDay(activity: {
+  day: string;
+  flashcardReviews: number;
+  lowConfidenceReviews: number;
+  mediumConfidenceReviews: number;
+  highConfidenceReviews: number;
+  checkedIn: boolean;
+}) {
+  return buildActivitySeries(activity.day, 1, [activity])[0]!;
 }

@@ -67,12 +67,25 @@ export function NewKitForm() {
     }
   }
 
+  async function retryRun() {
+    if (!run || run.status !== "retryable") return;
+    setState("starting");
+    setError(null);
+    try {
+      const { generationRun } = await api.retryGenerationRun(run.id);
+      await watchRun(generationRun.id);
+    } catch (cause) {
+      setState("failed");
+      setError(apiErrorMessage(cause));
+    }
+  }
+
   const busy = state === "starting" || state === "polling";
   return <><div><p className="eyebrow">Your next role</p><h1 className="mt-2 text-[clamp(1.75rem,4vw,2rem)] font-semibold tracking-tight">New preparation kit</h1><p className="mt-2 text-sm text-muted-ink">Paste the posting. Cruxer will do the reading around it.</p></div>
     <Card className="mt-8 overflow-hidden"><form className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]" onSubmit={onSubmit}><div className="p-5 sm:p-7"><FieldLabel htmlFor="job-description">Job description</FieldLabel><Textarea id="job-description" name="jobDescription" placeholder="Paste the full job description here…" className="min-h-80" required disabled={busy} /><FieldHint>The more complete the posting, the more precisely requirements can be mapped.</FieldHint><div className="mt-6"><FieldLabel htmlFor="company-url">Company website</FieldLabel><Input id="company-url" name="companyUrl" type="url" placeholder="https://company.com" required disabled={busy} /></div>
       {error && <p role="alert" className="mt-5 rounded-xl border border-danger/30 bg-danger/5 px-3 py-2.5 text-sm text-danger">{error}</p>}
       <Button type="submit" className="mt-6" disabled={busy}>{busy ? <LoaderCircle className="animate-spin" size={16} /> : <Sparkles size={16} />}{state === "starting" ? "Starting generation…" : state === "polling" ? "Building your kit…" : "Generate my kit"}</Button>
-    </div><aside className="border-t bg-canvas p-5 sm:p-7 lg:border-l lg:border-t-0"><FieldLabel htmlFor="days">Interview window</FieldLabel><div className="flex items-center gap-3"><Input id="days" name="days" type="number" min="1" max="60" defaultValue="5" className="w-24" disabled={busy} /><span className="text-sm text-muted-ink">days</span></div><GenerationStatus run={run} loading={state === "starting" || state === "polling"} onRetry={state === "failed" && run && !isTerminalRun(run.status) ? () => void watchRun(run.id) : undefined} />
+    </div><aside className="border-t bg-canvas p-5 sm:p-7 lg:border-l lg:border-t-0"><FieldLabel htmlFor="days">Interview window</FieldLabel><div className="flex items-center gap-3"><Input id="days" name="days" type="number" min="1" max="60" defaultValue="5" className="w-24" disabled={busy} /><span className="text-sm text-muted-ink">days</span></div><GenerationStatus run={run} loading={state === "starting" || state === "polling"} onRetry={state === "failed" && run?.status === "retryable" ? () => void retryRun() : undefined} />
       <div className="mt-10 border-t pt-5"><button type="button" className="inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-ink hover:text-signal"><FileUp size={16} />Upload multiple roles</button><p className="mt-2 text-xs leading-5 text-muted-ink"><Info size={13} className="mr-1 inline" />Batch upload is coming with row-level validation.</p></div></aside></form></Card>
   </>;
 }

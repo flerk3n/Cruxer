@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowDown,
   ArrowLeft,
@@ -29,7 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ReadinessRunway, type StudyDay } from "@/components/readiness-runway";
-import { api, apiErrorMessage, CruxerApiError, type KitActivity, type KitDocument, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
+import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitActivity, type KitDocument, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(useGSAP);
@@ -152,6 +153,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [questions, setQuestions] = useState(initialQuestions);
   const [cards, setCards] = useState(flashcards);
   const [kitDocument, setKitDocument] = useState<KitDocument | null>(null);
+  const [generationRun, setGenerationRun] = useState<GenerationRun | null>(null);
   const kitRef = useRef<KitDocument | null>(null);
   const [loadingKit, setLoadingKit] = useState(true);
   const [category, setCategory] = useState<Category>("all");
@@ -212,8 +214,15 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     void api.getKit(kitId).then(({ kit }) => {
       if (!alive) return;
       applyRemote(kit);
+      if (kit.generationRunId) {
+        void api.getGenerationRun(kit.generationRunId).then(({ generationRun: nextRun }) => {
+          if (alive) setGenerationRun(nextRun);
+        }).catch(() => {
+          // A missing status record must not prevent the kit error state from rendering.
+        });
+      }
     }).catch((cause) => {
-      if (alive) setNotice(`${apiErrorMessage(cause)} You can still explore this preview.`);
+      if (alive) setNotice(apiErrorMessage(cause));
     }).finally(() => { if (alive) setLoadingKit(false); });
     return () => { alive = false; };
   // The route id is stable for a mounted builder; do not refetch after every local save.
@@ -374,6 +383,27 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     } finally { setCheckingIn(false); }
   }
 
+  async function retryFailedKit() {
+    if (generationRun?.status !== "retryable") return;
+    setPendingAction("retry-generation");
+    setNotice(null);
+    try {
+      const { generationRun: restarted } = await api.retryGenerationRun(generationRun.id);
+      const result = await pollGenerationRun(restarted.id, { onUpdate: setGenerationRun });
+      if (result.status !== "ready") {
+        setNotice(result.terminalError?.message ?? "Cruxer could not complete this kit.");
+        return;
+      }
+      const { kit } = await api.getKit(kitId);
+      applyRemote(kit);
+      setGenerationRun(result);
+    } catch (cause) {
+      setNotice(apiErrorMessage(cause));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   async function deleteQuestion(questionId: string) {
     const previous = questions;
     setQuestions((items) => items.filter((question) => question.id !== questionId));
@@ -419,6 +449,14 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     }
     setQuestions(previous);
     setNotice(`${action}. ${apiErrorMessage(cause)}`);
+  }
+
+  if (loadingKit) {
+    return <section className="py-8" aria-busy="true" aria-label="Loading kit"><div className="h-3 w-28 animate-pulse rounded bg-line" /><div className="mt-4 h-9 w-72 max-w-full animate-pulse rounded bg-line" /><div className="mt-8 h-64 animate-pulse rounded-card border bg-surface-raised" /></section>;
+  }
+
+  if (!kitDocument?.kit) {
+    return <section className="mx-auto max-w-xl py-12 text-center"><p className="eyebrow">Generation incomplete</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">Your preparation kit is not ready yet.</h1><p className="mt-3 text-sm leading-6 text-muted-ink">{generationRun?.terminalError?.message ?? "Cruxer could not load the completed kit."} No sample questions or company research are shown as if they were yours.</p>{generationRun?.status === "retryable" && <Button className="mt-6" onClick={() => void retryFailedKit()} disabled={pendingAction === "retry-generation"}>{pendingAction === "retry-generation" ? "Retrying generation…" : "Retry generation"}</Button>}<Link href="/dashboard/new" className="mt-5 block text-sm font-medium text-signal hover:text-signal-strong">Create another kit</Link></section>;
   }
 
   return <div ref={root} className="pb-4">

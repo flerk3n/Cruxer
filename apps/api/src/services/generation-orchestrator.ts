@@ -135,6 +135,7 @@ export class GenerationOrchestrator {
     const run = await GenerationRun.findOneAndUpdate({ _id: runId, status: "queued" }, { $set: { status: "running" } }, { new: true });
     if (!run) return;
 
+    let stage: GenerationStage = "building";
     try {
       const generated = await this.pipeline.run(
         { jd: run.input.jd, company_url: run.input.companyUrl, days: run.input.days },
@@ -142,10 +143,14 @@ export class GenerationOrchestrator {
       );
       // The pipeline validates its output too; this second boundary protects the database
       // should a future pipeline implementation accidentally loosen that contract.
+      stage = "validating-persistence";
       const generatedKit = persistedKitSchema.parse(generated);
-      const update = run.regeneration
-        ? await this.mergeRegeneration(run, generatedKit)
+      stage = "preparing-save";
+      const regeneration = scopedRegeneration(run.regeneration);
+      const update = regeneration
+        ? await this.mergeRegeneration(run, generatedKit, regeneration)
         : { kit: generatedKit, editor: undefined };
+      stage = "saving-kit";
       const saved = await Kit.findOneAndUpdate(
         { _id: run.kitId, ownerId: run.ownerId, generationRunId: run._id },
         {
@@ -159,32 +164,40 @@ export class GenerationOrchestrator {
         { new: true, runValidators: true }
       );
       if (!saved) throw new Error("The kit generation lease is no longer valid.");
+      stage = "marking-run-ready";
       await GenerationRun.updateOne({ _id: run._id }, { $set: { status: "ready" }, $unset: { terminalError: 1 } });
     } catch (error) {
-      const failure = toFailure(error);
+      logGenerationFailure(runId, stage, error);
+      const failure = toFailure(error, stage);
       const status = failure.retryable ? "retryable" : "failed";
       await GenerationRun.updateOne(
         { _id: run._id },
         { $set: { status, terminalError: { code: failure.code, message: failure.message } } }
       );
       await Kit.updateOne(
-        { _id: run.kitId, ownerId: run.ownerId, generationRunId: run._id },
+        // Do not turn a successfully saved kit back into a failure if the only
+        // remaining operation (marking the run ready) has a transient problem.
+        { _id: run.kitId, ownerId: run.ownerId, generationRunId: run._id, status: "generating" },
         { $set: { status: "failed" } }
       );
       await this.failCurrentStep(runId, failure.message);
     }
   }
 
-  private async mergeRegeneration(run: GenerationRunRecord & { _id: { toString(): string } }, generated: ReturnType<typeof persistedKitSchema.parse>): Promise<{ kit: ReturnType<typeof persistedKitSchema.parse>; editor: ReturnType<typeof normalizeEditor> }> {
+  private async mergeRegeneration(
+    run: GenerationRunRecord & { _id: { toString(): string } },
+    generated: ReturnType<typeof persistedKitSchema.parse>,
+    regeneration: ScopedRegeneration
+  ): Promise<{ kit: ReturnType<typeof persistedKitSchema.parse>; editor: ReturnType<typeof normalizeEditor> }> {
     const current = await Kit.findOne({ _id: run.kitId, ownerId: run.ownerId, generationRunId: run._id }).select("kit editor").lean();
-    if (!current?.kit || !run.regeneration) throw new Error("The kit regeneration lease is no longer valid.");
+    if (!current?.kit) throw new Error("The kit regeneration lease is no longer valid.");
     const editor = normalizeEditor(current.editor);
     const kit = mergeRegeneratedSection(
       persistedKitSchema.parse(current.kit),
       generated,
       editor,
-      run.regeneration.section,
-      run.regeneration.category
+      regeneration.section,
+      regeneration.category
     );
     const validIds = new Set(kit.questions.map((question) => question.id));
     editor.questions = Object.fromEntries(Object.entries(editor.questions).filter(([id]) => validIds.has(id)));
@@ -222,9 +235,52 @@ function stepStatus(status: "started" | "completed" | "warning" | "failed"): "ru
   return status === "started" ? "running" : status === "completed" ? "complete" : status;
 }
 
-function toFailure(error: unknown): { code: string; message: string; retryable: boolean } {
+type GenerationStage = "building" | "validating-persistence" | "preparing-save" | "saving-kit" | "marking-run-ready";
+type ScopedRegeneration = NonNullable<GenerationRunRecord["regeneration"]>;
+
+/**
+ * Mongoose can hydrate an omitted nested object as `{}`. A regular first-time
+ * run must not enter the regeneration merge path merely because that object is
+ * truthy; only the discriminating `section` field makes it a real regeneration.
+ */
+export function scopedRegeneration(value: GenerationRunRecord["regeneration"] | Record<string, unknown> | undefined): ScopedRegeneration | undefined {
+  if (value?.section === "questions" || value?.section === "flashcards") {
+    return value as ScopedRegeneration;
+  }
+  return undefined;
+}
+
+function toFailure(error: unknown, stage: GenerationStage): { code: string; message: string; retryable: boolean } {
   if (error instanceof PipelineError) return { code: error.code, message: error.message, retryable: retryableCodes.has(error.code) };
+  if (stage !== "building") {
+    return {
+      code: persistenceFailureCode(stage),
+      message: "Your kit was built but could not be saved. Please retry.",
+      retryable: true
+    };
+  }
   return { code: "GENERATION_FAILED", message: "Generation stopped unexpectedly. Please retry.", retryable: true };
+}
+
+function persistenceFailureCode(stage: Exclude<GenerationStage, "building">): string {
+  switch (stage) {
+    case "validating-persistence": return "GENERATION_PERSISTENCE_VALIDATION_FAILED";
+    case "preparing-save": return "GENERATION_PERSISTENCE_PREPARATION_FAILED";
+    case "saving-kit": return "GENERATION_PERSISTENCE_SAVE_FAILED";
+    case "marking-run-ready": return "GENERATION_PERSISTENCE_STATUS_FAILED";
+  }
+}
+
+/**
+ * Persisted run errors are intentionally concise for the client. The original
+ * exception is logged only on the API host, together with a run id that lets us
+ * correlate it with the safe status endpoint without leaking provider or DB data.
+ */
+function logGenerationFailure(runId: string, stage: GenerationStage, error: unknown): void {
+  const cause = error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { value: String(error) };
+  console.error("Cruxer generation failed", { runId, stage, ...cause });
 }
 
 function isDuplicateKeyError(error: unknown): error is { code: number } {

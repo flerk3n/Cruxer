@@ -201,6 +201,7 @@ export const api = {
   },
   checkIn: (kitId: string, timeZone?: string) => request<{ activity: ActivityDay }>(`/kits/${encodeURIComponent(kitId)}/activity/check-in`, json(timeZone ? { timeZone } : {})),
   startGeneration: (kitId: string) => request<{ generationRun: Pick<GenerationRun, "id" | "kitId"> }>(`/kits/${encodeURIComponent(kitId)}/generate`, { method: "POST" }),
+  retryGenerationRun: (runId: string) => request<{ generationRun: Pick<GenerationRun, "id" | "kitId"> }>(`/generation-runs/${encodeURIComponent(runId)}/retry`, { method: "POST" }),
   getGenerationRun: (runId: string) => request<{ generationRun: GenerationRun }>(`/generation-runs/${encodeURIComponent(runId)}`)
 };
 

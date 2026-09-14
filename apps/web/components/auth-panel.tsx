@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import logoMark from "../../../logo.svg";
@@ -16,6 +16,7 @@ export function AuthPanel({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,7 +45,7 @@ export function AuthPanel({ mode }: { mode: "login" | "register" }) {
       <form className="mt-8 space-y-5" aria-label={creating ? "Create account" : "Sign in"} onSubmit={onSubmit}>
         {creating && <div><FieldLabel htmlFor="name">Name</FieldLabel><Input id="name" name="name" autoComplete="name" placeholder="Your name" required /></div>}
         <div><FieldLabel htmlFor="email">Email</FieldLabel><Input id="email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></div>
-        <div><FieldLabel htmlFor="password">Password</FieldLabel><Input id="password" name="password" type="password" autoComplete={creating ? "new-password" : "current-password"} minLength={12} placeholder="At least 12 characters" required />{creating && <FieldHint>Use at least 12 characters.</FieldHint>}</div>
+        <div><FieldLabel htmlFor="password">Password</FieldLabel><div className="relative"><Input id="password" name="password" type={passwordVisible ? "text" : "password"} autoComplete={creating ? "new-password" : "current-password"} minLength={12} placeholder="At least 12 characters" className="pr-12" required /><button type="button" onClick={() => setPasswordVisible((visible) => !visible)} className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-xl text-slate-400 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" aria-label={passwordVisible ? "Hide password" : "Show password"} aria-pressed={passwordVisible}>{passwordVisible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div>{creating && <FieldHint>Use at least 12 characters.</FieldHint>}</div>
         {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger">{error}</p>}
         <Button type="submit" className="mt-2 w-full !bg-indigo-300 !text-slate-950 hover:!bg-indigo-200" disabled={submitting}>{submitting ? "Please wait…" : creating ? "Create account" : "Sign in"}<ArrowRight size={16} /></Button>
       </form>

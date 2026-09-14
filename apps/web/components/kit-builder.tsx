@@ -30,7 +30,7 @@ import { useGSAP } from "@gsap/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
-import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitDocument, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
+import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitDocument, type KitQuestion, type QuestionCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(useGSAP);
@@ -97,8 +97,8 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [addDraft, setAddDraft] = useState({ prompt: "", answer: "", category: "technical" as Question["category"] });
   const [revealed, setRevealed] = useState(false);
   const [flashcardIndex, setFlashcardIndex] = useState(0);
-  const [reviewed, setReviewed] = useState(3);
-  const [practiceProgress, setPracticeProgress] = useState<PracticeProgress[]>([]);
+  const [sessionReviewed, setSessionReviewed] = useState(0);
+  const [sessionComplete, setSessionComplete] = useState(false);
   const [expandedDay, setExpandedDay] = useState(1);
 
   useGSAP(() => {
@@ -135,6 +135,14 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     setCards(next.kit.flashcards.map((card) => ({ ...card, requirementIds: card.requirement_ids, requirement: card.requirement_ids.map((id) => requirementsById.get(id)).filter(Boolean).join(" · ") || "Role signal" })));
   }
 
+  function restartFlashcardSession(message?: string) {
+    setFlashcardIndex(0);
+    setSessionReviewed(0);
+    setSessionComplete(false);
+    setRevealed(false);
+    if (message) setNotice(message);
+  }
+
   useEffect(() => {
     let alive = true;
     void api.getKit(kitId).then(({ kit }) => {
@@ -156,17 +164,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   }, [kitId]);
 
   useEffect(() => {
-    void api.getPractice(kitId).then(({ progress }) => {
-      setReviewed(progress.length);
-      setPracticeProgress(progress);
-    }).catch(() => {
-      // Practice remains usable during a transient API outage; the confidence
-      // action will explain that it could only be recorded for this session.
-    });
-  }, [kitId]);
-
-  useEffect(() => {
-    if (view !== "flashcards") return;
+    if (view !== "flashcards" || sessionComplete) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, button, a")) return;
@@ -175,7 +173,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [revealed, view]);
+  }, [revealed, sessionComplete, view]);
 
   const animateReorder = contextSafe((questionId: string, direction: number) => {
     if (!canAnimate.current) return;
@@ -271,13 +269,17 @@ export function KitBuilder({ kitId }: { kitId: string }) {
       const document = kitRef.current;
       if (!document?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
       const response = await api.regenerate(kitId, document.revision, "flashcards");
-      if (response.kit) { applyRemote(response.kit); setNotice("Flashcards refreshed."); return; }
-      if (!response.generationRun) throw new CruxerApiError("Cruxer did not start the flashcard refresh.", 0, "GENERATION_UNAVAILABLE");
-      const result = await pollGenerationRun(response.generationRun.id, { onUpdate: setGenerationRun });
-      if (result.status !== "ready") { setNotice(result.terminalError?.message ?? "Flashcard refresh could not be completed."); return; }
-      const { kit } = await api.getKit(kitId);
-      applyRemote(kit);
-      setNotice("Flashcards refreshed.");
+      if (response.generationRun) {
+        const result = await pollGenerationRun(response.generationRun.id, { onUpdate: setGenerationRun });
+        if (result.status !== "ready") { setNotice(result.terminalError?.message ?? "Flashcard refresh could not be completed."); return; }
+        const { kit } = await api.getKit(kitId);
+        applyRemote(kit);
+        restartFlashcardSession("Flashcards refreshed. Your new session is ready.");
+        return;
+      }
+      if (!response.kit) throw new CruxerApiError("Cruxer did not start the flashcard refresh.", 0, "GENERATION_UNAVAILABLE");
+      applyRemote(response.kit);
+      restartFlashcardSession("Flashcards refreshed. Your new session is ready.");
     } catch (cause) { setNotice(`Could not refresh flashcards. ${apiErrorMessage(cause)}`); } finally { setPendingAction(null); }
   }
 
@@ -287,15 +289,16 @@ export function KitBuilder({ kitId }: { kitId: string }) {
       return;
     }
     const label = value === "1" ? "Not yet" : value === "2" ? "Getting there" : "Confident";
-    setReviewed((current) => Math.min(12, current + 1));
+    const isLastCard = flashcardIndex >= cards.length - 1;
+    setSessionReviewed((current) => Math.min(cards.length, current + 1));
     setRevealed(false);
-    setFlashcardIndex((current) => (current + 1) % Math.max(cards.length, 1));
+    if (isLastCard) setSessionComplete(true);
+    else setFlashcardIndex((current) => current + 1);
     try {
       if (!kitRef.current?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
-      const { kit, progress } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
+      const { kit } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
       applyRemote(kit);
-      setPracticeProgress((current) => [...current.filter((entry) => entry.flashcardId !== progress.flashcardId), progress]);
-      setNotice(`${label} recorded. Next card ready.`);
+      setNotice(isLastCard ? `${label} recorded. You completed this session.` : `${label} recorded. Next card ready.`);
     } catch (cause) {
       setNotice(`${label} saved for this session. ${apiErrorMessage(cause)}`);
     }
@@ -411,7 +414,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
           saving={pendingAction}
           onRegenerate={setRegenerating}
         />}
-        {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={reviewed} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => { setFlashcardIndex(0); setReviewed(0); setRevealed(false); setNotice("Practice session restarted."); }} onRegenerate={regenerateFlashcards} regenerating={pendingAction === "regenerate-flashcards"} />}
+        {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={sessionReviewed} complete={sessionComplete} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => restartFlashcardSession("Practice session restarted.")} onRegenerate={regenerateFlashcards} regenerating={pendingAction === "regenerate-flashcards"} />}
         {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} />}
       </main>
     </div>
@@ -457,9 +460,10 @@ function QuestionEditor({ draft, onDraft, onCancel, onSave }: { draft: { prompt:
   return <div className="mt-4 space-y-3"><label className="block"><span className="text-xs font-medium text-muted-ink">Question</span><textarea value={draft.prompt} onChange={(event) => onDraft({ ...draft, prompt: event.target.value })} onKeyDown={onKeyDown} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Answer outline</span><textarea value={draft.answer} onChange={(event) => onDraft({ ...draft, answer: event.target.value })} onKeyDown={onKeyDown} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Category</span><select value={draft.category} onChange={(event) => onDraft({ ...draft, category: event.target.value as Question["category"] })} className="mt-1.5 min-h-11 w-full rounded-xl border bg-canvas px-3 text-sm outline-none focus:border-signal">{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="flex flex-wrap items-center gap-2"><Button size="sm" onClick={onSave}><Check size={15} />Save</Button><Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button><span className="text-xs text-muted-ink">Esc to cancel · ⌘/Ctrl + Enter to save</span></div></div>;
 }
 
-function FlashcardsView({ card, index, total, revealed, reviewed, onReveal, onConfidence, onRestart, onRegenerate, regenerating }: { card?: Flashcard; index: number; total: number; revealed: boolean; reviewed: number; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void; onRegenerate: () => void; regenerating: boolean }) {
+function FlashcardsView({ card, index, total, revealed, reviewed, complete, onReveal, onConfidence, onRestart, onRegenerate, regenerating }: { card?: Flashcard; index: number; total: number; revealed: boolean; reviewed: number; complete: boolean; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void; onRegenerate: () => void; regenerating: boolean }) {
   if (!card) return <section className="mx-auto max-w-3xl py-10 text-center"><p className="eyebrow">Practice session</p><h2 className="mt-2 text-xl font-semibold tracking-tight">No flashcards are available yet.</h2><p className="mt-3 text-sm leading-6 text-muted-ink">Regenerate this kit after adding a fuller job description to create study prompts.</p></section>;
-  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2></div><div className="flex items-center gap-3"><span className="shrink-0 text-sm text-muted-ink">{reviewed} of {total} reviewed</span><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={regenerating}>{regenerating ? "Refreshing…" : "Refresh flashcards"}</Button></div></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${Math.max(8, reviewed / Math.max(total, 1) * 100)}%` }} /></div><Card className="mt-8 min-h-[26rem] p-6 sm:p-10"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{card.requirement}</span><span className="font-mono text-xs text-muted-ink">{index + 1} / {total}</span></div><h3 className="editorial-title mt-10 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">{card.front}</h3>{revealed ? <div className="mt-9 border-t pt-6"><p className="text-xs font-medium text-muted-ink">Suggested answer</p><p className="mt-2 text-[15px] leading-7">{card.back}</p><div className="mt-8 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Use 1, 2, or 3 after revealing.</p></div> : <div className="mt-10"><p className="text-sm text-muted-ink">Take a moment before you reveal the answer.</p><Button className="mt-6" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button><p className="mt-3 text-xs text-muted-ink">Space to reveal</p></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></section>;
+  const completedCount = Math.min(reviewed, total);
+  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2></div><div className="flex items-center gap-3"><span className="shrink-0 text-sm text-muted-ink">{completedCount} of {total} reviewed</span><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={regenerating}>{regenerating ? "Refreshing…" : "Refresh flashcards"}</Button></div></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${completedCount / Math.max(total, 1) * 100}%` }} /></div>{complete ? <Card className="mt-8 grid min-h-[26rem] place-items-center p-6 text-center sm:p-10"><div className="max-w-md"><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-success/10 text-success"><CheckCircle2 size={24} /></span><p className="mt-6 text-xs font-medium uppercase tracking-[0.16em] text-muted-ink">Session complete</p><h3 className="editorial-title mt-3 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">That’s the full set.</h3><p className="mt-4 text-sm leading-6 text-muted-ink">You reviewed all {total} flashcards in this session. Start over when you want another pass.</p><Button className="mt-8" onClick={onRestart}><RotateCcw size={16} />Start it over</Button></div></Card> : <><Card className="mt-8 min-h-[26rem] p-6 sm:p-10"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{card.requirement}</span><span className="font-mono text-xs text-muted-ink">{index + 1} / {total}</span></div><h3 className="editorial-title mt-10 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">{card.front}</h3>{revealed ? <div className="mt-9 border-t pt-6"><p className="text-xs font-medium text-muted-ink">Suggested answer</p><p className="mt-2 text-[15px] leading-7">{card.back}</p><div className="mt-8 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Use 1, 2, or 3 after revealing.</p></div> : <div className="mt-10"><p className="text-sm text-muted-ink">Take a moment before you reveal the answer.</p><Button className="mt-6" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button><p className="mt-3 text-xs text-muted-ink">Space to reveal</p></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></>}</section>;
 }
 
 function ScheduleView({ expandedDay, onToggle, questions, plan }: { expandedDay: number; onToggle: (day: number) => void; questions: Question[]; plan: StudyDay[] }) {

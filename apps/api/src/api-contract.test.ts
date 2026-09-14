@@ -132,6 +132,18 @@ describe("API authorization and builder contracts", () => {
     expect(models.Kit.findOne).not.toHaveBeenCalled();
   });
 
+  it("does not rate-limit repeated authenticated session reads used by the dashboard", async () => {
+    const user = { _id: { toString: () => OWNER_ID }, email: "owner@example.com", createdAt: new Date("2026-09-14T10:00:00.000Z") };
+    models.User.findById.mockResolvedValue(user);
+
+    const responses = await Promise.all(Array.from({ length: 30 }, async () => {
+      const { response } = await request(baseUrl, "/auth/session");
+      return response.status;
+    }));
+
+    expect(responses).toEqual(Array.from({ length: 30 }, () => 200));
+  });
+
   it("scopes kit reads to the authenticated owner and does not expose another user's kit", async () => {
     models.Kit.findOne.mockReturnValue(query(undefined));
 

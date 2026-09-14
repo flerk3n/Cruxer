@@ -4,7 +4,6 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 import type { AppConfig } from "./config/env.js";
 import { errorHandler, notFound, requestContext } from "./lib/errors.js";
-import { rateLimit } from "./middleware/rate-limit.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createGenerationRunsRouter } from "./routes/generation-runs.js";
 import { createKitsRouter } from "./routes/kits.js";
@@ -28,7 +27,7 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   app.use(cookieParser());
 
   app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
-  app.use("/auth", rateLimit({ windowMs: 15 * 60 * 1000, max: 25, keyPrefix: "auth" }), createAuthRouter(config));
+  app.use("/auth", createAuthRouter(config));
   const generation = new GenerationOrchestrator(dependencies.pipeline ?? new CruxerKitPipeline());
   app.use("/kits", createKitsRouter(config, generation));
   app.use("/generation-runs", createGenerationRunsRouter(config, generation));

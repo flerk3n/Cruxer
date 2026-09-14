@@ -56,6 +56,7 @@
 - Fixed empty generated kits: when provider evidence formatting does not exactly match the source, requirements now use normalized evidence matching and a bounded fallback that copies only explicit, signal-bearing JD lines. Empty valid flashcard output now receives question-derived recall cards.
 - Removed Atlas/sample content from the kit and standalone practice routes. Empty generated material is shown honestly rather than rendered as a demo. Re-ran the affected local Trao kit successfully: 9 requirements, 15 questions, and 12 flashcards persisted.
 - Re-verified: 26 shared tests, 8 API tests, all workspace type checks, production web build, and whitespace validation pass.
+- Scoped authentication rate limiting to password-bearing login/registration requests. Dashboard `GET /auth/session` reads are no longer counted as credential attempts; a regression test verifies 30 authenticated session reads remain available. Re-verified with 26 shared tests, 9 API tests, workspace type checks, and a production web build.
 
 ## Active commitments
 

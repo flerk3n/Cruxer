@@ -6,16 +6,22 @@ import { ApiError } from "../lib/errors.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { clearSessionCookie, issueSession, setSessionCookie } from "../lib/session.js";
 import { requireAuth } from "../middleware/auth.js";
+import { rateLimit } from "../middleware/rate-limit.js";
 
 const credentialsSchema = z.object({
   email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
   password: z.string().min(12, "Password must be at least 12 characters.").max(128)
 }).strict();
 
+// Session reads are performed whenever the dashboard loads and must not be
+// counted as credential guesses. Keep one shared bucket for the two endpoints
+// that accept a password so login/register brute-force protection remains intact.
+const credentialRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 25, keyPrefix: "auth-credentials" });
+
 export function createAuthRouter(config: AppConfig): Router {
   const router = Router();
 
-  router.post("/register", async (req, res, next) => {
+  router.post("/register", credentialRateLimit, async (req, res, next) => {
     try {
       const { email, password } = credentialsSchema.parse(req.body);
       const existing = await User.exists({ email });
@@ -29,7 +35,7 @@ export function createAuthRouter(config: AppConfig): Router {
     }
   });
 
-  router.post("/login", async (req, res, next) => {
+  router.post("/login", credentialRateLimit, async (req, res, next) => {
     try {
       const { email, password } = credentialsSchema.parse(req.body);
       const user = await User.findOne({ email }).select("+passwordHash");

@@ -38,7 +38,8 @@ Use `signal` sparingly: it means “do this next,” not “AI.” Coverage and 
 
 ### Typography
 
-- **Interface and body — Geist Sans:** clear at small sizes, characterful without reducing scan speed, loaded with `next/font` so it is self-hosted and stable.
+- **Workspace interface and body — DM Sans:** a warmer, more deliberate alternative to Geist for the authenticated product; its wider forms improve large dashboard numerals and dense controls without changing the product’s overall voice. It is loaded with `next/font` and scoped to the workspace only.
+- **Landing interface and body — Geist Sans:** retained for the public marketing route so the product revamp does not disturb the landing page.
 - **Editorial display — Instrument Serif:** limited to the landing hero, kit title, and major empty-state statements. Its italic is used only for one short emphasis; never within forms, data tables, or dense kit content.
 - **Code, IDs, and durations — Geist Mono:** source URLs, requirement IDs, keyboard hints, timer values, and technical labels.
 
@@ -47,18 +48,18 @@ Type scale uses `clamp()` for headings and a 4px rhythm:
 | Role | Desktop | Mobile | Weight / line height |
 | --- | --- | --- | --- |
 | Display | 56px | 40px | Instrument Serif 400 / 0.98 |
-| Page title | 32px | 28px | Geist 600 / 1.1 |
-| Section title | 20px | 18px | Geist 600 / 1.25 |
-| Body | 15px | 15px | Geist 400 / 1.55 |
-| UI label | 13px | 13px | Geist 500 / 1.25 |
+| Page title | 32px | 28px | DM Sans 600 / 1.1 |
+| Section title | 20px | 18px | DM Sans 600 / 1.25 |
+| Body | 15px | 15px | DM Sans 400 / 1.55 |
+| UI label | 13px | 13px | DM Sans 600 / 1.25 |
 | Meta | 12px | 12px | Geist 500 / 1.35 |
 
 Never use a font below 12px or all-caps paragraphs. Metadata may use 0.04em tracking; headings and body use normal tracking.
 
 ### Layout, surfaces, and iconography
 
-- Desktop shell: 264px persistent sidebar, 24px content gutter, 1280px comfortable content cap; a fluid main pane is retained on ultrawide screens.
-- Phone shell: compact top bar plus a bottom sheet navigation; forms and primary actions remain in natural thumb reach.
+- Desktop shell: centred 1440px workspace frame, quiet top utility bar, and a floating four-item dock at the bottom centre. The dock makes wide screens feel balanced while retaining a constant spatial home for the core actions.
+- Phone shell: compact top bar and an inset-width bottom dock; forms and primary actions remain in natural thumb reach.
 - Base spacing is 4px; common increments are 8, 12, 16, 24, 32, 48, and 64px.
 - Cards have a 16px radius and a 1px `line` border. Use a subtle 1–2px upward hover lift only when a card is clickable; no heavy permanent shadows.
 - Floating items (popover, command palette, toast) use a soft ambient shadow and a 20px radius. Sheets use a 24px top radius.
@@ -79,7 +80,9 @@ Build owned components from shadcn/ui patterns, Radix primitives, Tailwind seman
 | `Flashcard` | Large, focused front/back surface with reveal and confidence actions | Keyboard: Space reveal; 1/2/3 record confidence after reveal. |
 | `CoverageMap` | Compact requirement rows, covered check or action-linked gap | Makes the deterministic coverage result inspectable. |
 | `SourceChip` | Domain name, external-link icon, tooltip/full URL | Opens in a new tab with safe rel attributes. |
-| `CommandMenu` | `⌘/Ctrl + K` kit switcher and actions | Searchable keyboard-first navigation. |
+| `CommandMenu` | `⌘/Ctrl + K` kit switcher and actions | Searchable keyboard-first navigation with a compact spring entrance. |
+| `WorkspaceDock` | Floating Home / New kit / Practice / Settings navigation | Shared active indicator, primary New kit action, and safe-area-aware mobile placement. |
+| `ToastViewport` | Top-centre transient success/information feedback | Dismissible, polite live region; never obscures a form field or the bottom dock. |
 
 Use a maximum of three visual weights per view: canvas, surface, and active/raised. Gradients are restricted to the landing hero’s subtle radial background and practice-session progress glow; never behind text or status data.
 
@@ -93,7 +96,7 @@ Auth is a centred, low-distraction panel with an adjacent short statement of val
 
 ### 2. Dashboard and new-kit flow
 
-The dashboard has a short greeting, a prominent **Create a kit** action, and kits grouped by status (In progress / Ready). Each kit row shows role, company, days, last updated, coverage state, and a single contextual action.
+The dashboard is a bento-style command centre: an editorial greeting and action panel, five compact workspace metrics, a wide cross-kit readiness surface, daily-effort graph, and responsive kit tiles. Each tile still shows role, company, coverage state, update time, and a single contextual action—visual richness does not hide operational detail.
 
 The new-kit flow is an intentional two-column form on desktop:
 
@@ -182,7 +185,7 @@ Motion is functional, short, and composited where possible. CSS transitions rema
 | Practice-card transition | On confidence selection, the card exits/fades and the next card enters as a controlled 180ms sequence; progress updates in the same timeline. | Gives repeated study actions a satisfying, coherent rhythm. |
 | Builder reordering | A FLIP-style position transition is applied only after a successful reorder. | Confirms what moved while preserving the user’s spatial map. |
 
-GSAP is explicitly **not** used for scrolling effects, parallax, animated backgrounds, loading spinners, form validation, dialogs, or every hover state. No premium-only GSAP plugin is required; use the core package plus `@gsap/react` only.
+GSAP is used for dashboard section reveals as content enters the viewport; each trigger runs once and is scoped/cleaned up with `@gsap/react`. It is explicitly not used for parallax, animated backgrounds, loading spinners, form validation, dialogs, or every hover state. No premium-only GSAP plugin is required.
 
 Implementation rules:
 
@@ -202,11 +205,11 @@ Implementation rules:
 ## Accessibility and responsive requirements
 
 - Target WCAG 2.2 AA: semantic HTML first, visible `:focus-visible` ring, 44px touch targets, no color-only signals, and 200% zoom without loss of action.
-- Skip link targets main content; landmarks label sidebar, main builder, and practice controls.
+- Skip link targets main content; landmarks label the dock, main builder, and practice controls.
 - Radix dialog/popover/menu/tabs primitives retain focus trapping, arrow navigation, escape handling, and correct ARIA behavior.
 - Status changes use polite live regions; errors move focus to the summary only when a submission cannot proceed.
 - All mouse interactions—drag reordering, reveal, overflow actions, tabs, confidence—have keyboard equivalents.
-- At `< 1024px`, collapse sidebar to a navigation sheet. At `< 640px`, use 16px page padding, stacked form fields, bottom action bar for primary actions, and avoid horizontal card controls.
+- At `< 640px`, use 16px page padding, stacked form fields, the bottom dock for primary navigation, and avoid horizontal card controls.
 
 ## Build order for UI
 

@@ -69,6 +69,61 @@ body {
   }
   .flashcard-orb { animation: flashcard-drift 8s ease-in-out infinite; }
   .flashcard-orb-delayed { animation-delay: -4s; }
+  .workspace-app {
+    --canvas: 228 45% 97%;
+    --surface: 0 0% 100%;
+    --surface-raised: 230 42% 98%;
+    --ink: 232 42% 12%;
+    --muted-ink: 227 13% 43%;
+    --line: 228 25% 88%;
+    --signal: 250 67% 57%;
+    --signal-strong: 250 61% 48%;
+    --success: 163 57% 31%;
+    --warning: 34 84% 38%;
+    --danger: 356 65% 52%;
+    --violet: 278 68% 55%;
+    min-height: 100vh;
+    font-family: var(--font-dm-sans), var(--font-geist-sans), Arial, sans-serif;
+    background: hsl(var(--canvas));
+  }
+  .dark .workspace-app {
+    --canvas: 234 40% 7%;
+    --surface: 232 31% 11%;
+    --surface-raised: 232 28% 15%;
+    --ink: 228 38% 96%;
+    --muted-ink: 227 15% 67%;
+    --line: 230 22% 20%;
+    --signal: 252 88% 73%;
+    --signal-strong: 252 88% 80%;
+    --success: 162 58% 58%;
+    --warning: 37 91% 68%;
+    --danger: 355 94% 73%;
+    --violet: 285 89% 77%;
+  }
+  .workspace-aurora {
+    background-image: radial-gradient(circle at 50% -14rem, hsl(var(--signal) / 0.17), transparent 30rem), radial-gradient(circle at 103% 40%, hsl(var(--violet) / 0.11), transparent 28rem);
+  }
+  .dock-shell {
+    border: 1px solid hsl(var(--line) / 0.8);
+    background: hsl(var(--surface) / 0.84);
+    box-shadow: 0 18px 55px hsl(var(--ink) / 0.18), inset 0 1px hsl(var(--surface) / 0.8);
+    backdrop-filter: blur(22px);
+  }
+  .workspace-panel {
+    background: linear-gradient(145deg, hsl(var(--surface) / 0.98), hsl(var(--surface-raised) / 0.96));
+    box-shadow: 0 16px 48px hsl(var(--ink) / 0.07), inset 0 1px hsl(var(--surface) / 0.9);
+  }
+  .workspace-kicker {
+    color: hsl(var(--signal));
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .workspace-grid {
+    background-image: linear-gradient(hsl(var(--line) / 0.35) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--line) / 0.35) 1px, transparent 1px);
+    background-size: 30px 30px;
+    mask-image: linear-gradient(to bottom, black, transparent 78%);
+  }
 }
 
 @keyframes flashcard-drift {

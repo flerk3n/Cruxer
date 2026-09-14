@@ -1,7 +1,7 @@
 # Cruxer — Progress Log
 
 **Last updated:** 2026-09-14 (Asia/Kolkata)  
-**Current phase:** Generation and application integration complete; persistence editing and release work next  
+**Current phase:** Core application complete; release readiness and deployment next  
 **Overall state:** In progress
 
 ## Current status
@@ -11,9 +11,9 @@
 | Assignment scope and architecture | Complete | `plan.md` defines fixed contracts, stack, pipeline, tests, deployment, and phased execution. |
 | Product design system | Complete | `design.md` defines visual direction, typography, component rules, responsive behavior, accessibility, and motion. |
 | Repository foundation | Complete | npm workspaces, TypeScript, Vitest, and the shared domain package are installed and verified. |
-| Backend/API | Generation flow complete | Auth, owner-scoped kits, draft input persistence, durable generation runs/retries, progress polling, duplicate-run prevention, and final-kit persistence are implemented. Granular kit editing/practice persistence remains next. |
+| Backend/API | Core flow complete | Auth, owner-scoped draft/generation runs, revision-guarded question/flashcard mutations, scoped regeneration preservation, and practice-progress persistence are implemented. |
 | Research/generation pipeline | Generation complete | Gemini 3.1 Flash-Lite structured generation, JD evidence checks, source-safe crawling, Tavily public-discussion research, separate question categories, coverage correction/fallback, deterministic schedule, and final Appendix A validation are implemented. |
-| Frontend | Generation flow complete | Live credentialed auth, dashboard data, new-kit draft creation, persisted generation polling, error/retry states, responsive builder interactions, and targeted GSAP are implemented. Builder edits still need API persistence. |
+| Frontend | Core flow complete | Live auth/dashboard/generation polling plus optimistic persisted builder edits, conflict reload, scoped regeneration states, and practice confidence are implemented. |
 | Deployment and walkthrough | Not started | Reserved for the release phase. |
 
 ## Completed in this update
@@ -38,6 +38,10 @@
 - Replaced the evaluator placeholder. The required CLI now calls the same `CruxerKitPipeline` and writes one Appendix B record per case, including failures without aborting the remaining cases.
 - Implemented the live draft → generation-run → polling UI/API contract, owner-scoped persistence, retry, and duplicate generation prevention.
 - Verified the integrated codebase: 21 tests pass, shared/API/web TypeScript checks pass, the Next.js production build passes, and the diff has no whitespace errors.
+- Added evaluator failure-isolation and generation edge-case tests, including thin descriptions, research warnings, malformed schema-valid JSON retries, and Appendix B output.
+- Added revision-guarded persistent builder mutations: question/flashcard add, edit, delete, reorder, category move, and preservation-aware regeneration.
+- Added persisted practice confidence/progress and connected all builder actions to optimistic web API operations with safe conflict reload.
+- Re-verified the integrated application: 25 tests pass, all workspace TypeScript checks pass, the production web build passes, and the diff has no whitespace errors.
 
 ## Active commitments
 
@@ -51,4 +55,4 @@ No implementation blocker. A Gemini API key, Tavily API key, MongoDB Atlas URI, 
 
 ## Next milestone
 
-Add persisted granular builder mutations (questions/flashcards/reordering/category move/regeneration preservation) and practice-progress endpoints, connect them to the builder, then add API/evaluator integration tests, README, deployment configuration, and public deployment verification.
+Write the submission README and deployment configuration, add final API integration/browser smoke tests, provision deployment secrets, deploy Vercel + Render + Atlas, run clean-clone/evaluator verification, and record the walkthrough.

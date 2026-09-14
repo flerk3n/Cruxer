@@ -1,7 +1,7 @@
 # Cruxer — Progress Log
 
 **Last updated:** 2026-09-14 (Asia/Kolkata)  
-**Current phase:** Phase 1–2 foundations complete; pipeline implementation next  
+**Current phase:** Generation and application integration complete; persistence editing and release work next  
 **Overall state:** In progress
 
 ## Current status
@@ -11,9 +11,9 @@
 | Assignment scope and architecture | Complete | `plan.md` defines fixed contracts, stack, pipeline, tests, deployment, and phased execution. |
 | Product design system | Complete | `design.md` defines visual direction, typography, component rules, responsive behavior, accessibility, and motion. |
 | Repository foundation | Complete | npm workspaces, TypeScript, Vitest, and the shared domain package are installed and verified. |
-| Backend/API | Foundation complete | Express app, typed configuration, MongoDB models, secure cookie sessions, auth routes, request/error boundary, and health endpoint are implemented in `apps/api`. Kit CRUD/ownership routes remain next. |
-| Research/generation pipeline | Foundation complete | Input/output contracts, safe fetching, robots handling, retry policy, crawl/link discovery, research service, and an LLM-ready boundary are implemented in `packages/pipeline`. |
-| Frontend | Foundation complete | Next.js App Router shell, responsive design tokens and primitives, initial product routes, theme toggle, ProgressRail, and a reduced-motion-safe GSAP hero reveal are implemented in `apps/web`. |
+| Backend/API | Generation flow complete | Auth, owner-scoped kits, draft input persistence, durable generation runs/retries, progress polling, duplicate-run prevention, and final-kit persistence are implemented. Granular kit editing/practice persistence remains next. |
+| Research/generation pipeline | Generation complete | Gemini 3.1 Flash-Lite structured generation, JD evidence checks, source-safe crawling, Tavily public-discussion research, separate question categories, coverage correction/fallback, deterministic schedule, and final Appendix A validation are implemented. |
+| Frontend | Generation flow complete | Live credentialed auth, dashboard data, new-kit draft creation, persisted generation polling, error/retry states, responsive builder interactions, and targeted GSAP are implemented. Builder edits still need API persistence. |
 | Deployment and walkthrough | Not started | Reserved for the release phase. |
 
 ## Completed in this update
@@ -33,6 +33,11 @@
 - Added the pipeline foundation: Appendix B schemas, URL/SSRF policy, bounded retrying fetch, robots compliance, same-origin relative-link discovery, text cleaning, and a shared pipeline interface.
 - Added the Next.js UI foundation: design tokens, fonts, theme, accessible primitives, responsive routes, ProgressRail, and scoped GSAP motion that respects reduced-motion preferences.
 - Integrated workspace dependencies and verified the repository: 15 tests pass, API/web/shared TypeScript checks pass, and the Next.js production build succeeds.
+- Selected `gemini-3.1-flash-lite` as the default model after verifying its structured-output and lightweight agentic/data-extraction support. The model is configurable through `GEMINI_MODEL`.
+- Implemented the real shared generation path: safe company/public-discussion research, evidence-bound role extraction, company brief, separately prompted categories, flashcards, deterministic coverage correction/scheduling, and final Appendix A validation.
+- Replaced the evaluator placeholder. The required CLI now calls the same `CruxerKitPipeline` and writes one Appendix B record per case, including failures without aborting the remaining cases.
+- Implemented the live draft → generation-run → polling UI/API contract, owner-scoped persistence, retry, and duplicate generation prevention.
+- Verified the integrated codebase: 21 tests pass, shared/API/web TypeScript checks pass, the Next.js production build passes, and the diff has no whitespace errors.
 
 ## Active commitments
 
@@ -42,8 +47,8 @@
 
 ## Known blockers
 
-None. API keys and deployment accounts are not needed to establish the local foundation; they will be documented in `.env.example` before integration/deployment. `npm install` reports upstream dependency audit advisories; no production application dependency has been selected yet, so they will be reviewed as each runtime dependency is introduced.
+No implementation blocker. A Gemini API key, Tavily API key, MongoDB Atlas URI, JWT secret, and deployment accounts are required only for the live deployed path; their names are documented in `.env.example`. `npm install` reports 10 upstream audit advisories; no automatic or breaking audit remediation has been applied.
 
 ## Next milestone
 
-Implement the real Gemini adapter and deliberate multi-stage `KitPipeline`: JD-only extraction with evidence, separately generated question categories, targeted coverage correction, flashcards, deterministic schedule merge, and final Appendix A validation. Then replace the evaluator placeholder so it invokes that exact pipeline.
+Add persisted granular builder mutations (questions/flashcards/reordering/category move/regeneration preservation) and practice-progress endpoints, connect them to the builder, then add API/evaluator integration tests, README, deployment configuration, and public deployment verification.

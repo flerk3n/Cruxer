@@ -1,0 +1,36 @@
+# Render Blueprint for the long-running Cruxer generation API.
+# This service is intentionally rooted at the repository so npm workspaces and
+# the shared TypeScript pipeline resolve exactly as they do in local development.
+services:
+  - type: web
+    name: cruxer-api
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: npm ci --include=dev && npm run typecheck --workspace=@cruxer/api
+    startCommand: npm run start --workspace=@cruxer/api
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render assigns PORT for web services. Do not declare it here.
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_TTL_DAYS
+        value: "7"
+      - key: BCRYPT_ROUNDS
+        value: "12"
+      - key: COOKIE_NAME
+        value: cruxer_session
+      # Set this to the production Vercel origin (for example,
+      # https://cruxer.vercel.app) when creating the Blueprint.
+      - key: WEB_ORIGIN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.1-flash-lite
+      - key: TAVILY_API_KEY
+        sync: false

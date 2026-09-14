@@ -40,16 +40,16 @@ export class CruxerKitPipeline implements KitPipeline {
     const input = pipelineInputSchema.parse(rawInput);
     await emit(observer, "input", "completed");
 
-    await emit(observer, "research", "started");
-    const research = await this.research.research(input.company_url);
-    for (const warning of research.warnings) await emit(observer, "research", "warning", warning.message);
-    await emit(observer, "research", "completed");
-
     await emit(observer, "role", "started");
     const extracted = await this.generator.generate({ prompt: roleExtractionPrompt(input.jd), schema: roleExtractionSchema, responseJsonSchema: jsonSchemas.role });
     const requirements = materializeRequirements(extracted.requirements, input.jd);
     await emit(observer, "role", "completed", requirements.length === 0 ? "The posting contained few explicit requirements." : undefined);
     const role = { title: extracted.title, seniority: extracted.seniority, responsibilities: extracted.responsibilities, requirements };
+
+    await emit(observer, "research", "started");
+    const research = await this.research.research(input.company_url, { roleTitle: role.title });
+    for (const warning of research.warnings) await emit(observer, "research", "warning", warning.message);
+    await emit(observer, "research", "completed");
 
     const brief = await this.generateBrief(research.documents, observer);
     await emit(observer, "questions", "started");

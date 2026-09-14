@@ -52,7 +52,7 @@ export class CompanyResearchService {
     this.publicDiscussionSearch = options.publicDiscussionSearch;
   }
 
-  async research(companyUrl: string): Promise<CompanyResearchResult> {
+  async research(companyUrl: string, context: { roleTitle?: string } = {}): Promise<CompanyResearchResult> {
     const warnings: ResearchWarning[] = [];
     const landing = await this.fetchAllowed(companyUrl, warnings);
     if (!landing) throw new PipelineError("COMPANY_UNREACHABLE", "Company landing page could not be retrieved.");
@@ -70,15 +70,15 @@ export class CompanyResearchService {
       const page = await this.fetchAllowed(candidate.url, warnings);
       if (page) documents.push(toCompanyDocument(page, candidate));
     }
-    await this.addPublicDiscussion(companyUrl, documents, warnings);
+    await this.addPublicDiscussion(companyUrl, documents, warnings, context.roleTitle);
     return { documents, warnings };
   }
 
-  private async addPublicDiscussion(companyUrl: string, documents: ResearchDocument[], warnings: ResearchWarning[]): Promise<void> {
+  private async addPublicDiscussion(companyUrl: string, documents: ResearchDocument[], warnings: ResearchWarning[], roleTitle?: string): Promise<void> {
     if (!this.publicDiscussionSearch) return;
     let results: PublicDiscussionSearchResult[];
     try {
-      results = await this.publicDiscussionSearch.search({ companyName: companyNameFromUrl(companyUrl), companyUrl });
+      results = await this.publicDiscussionSearch.search({ companyName: companyNameFromUrl(companyUrl), companyUrl, roleTitle });
     } catch {
       warnings.push({ code: "PUBLIC_DISCUSSION_UNAVAILABLE", message: "Public interview discussion search was unavailable; the kit uses company-site research only." });
       return;
@@ -89,12 +89,21 @@ export class CompanyResearchService {
     }
     for (const result of results.slice(0, this.maxPublicDiscussionPages)) {
       const page = await this.fetchAllowed(result.url, warnings);
-      if (page) documents.push({
-        url: page.url,
-        text: cleanPageText(page.body),
-        score: result.score,
-        provenance: { type: "public-discussion", discovered_by: "tavily", query: result.query, title: result.title }
-      });
+      if (page) {
+        documents.push({
+          url: page.url,
+          text: cleanPageText(page.body),
+          score: result.score,
+          provenance: { type: "public-discussion", discovered_by: "tavily", query: result.query, title: result.title }
+        });
+      } else if (result.excerpt) {
+        documents.push({
+          url: result.url,
+          text: result.excerpt,
+          score: result.score,
+          provenance: { type: "public-discussion", discovered_by: "tavily", query: result.query, title: result.title }
+        });
+      }
     }
   }
 
@@ -106,7 +115,7 @@ export class CompanyResearchService {
       if (error instanceof PipelineError && error.code === "ROBOTS_DENIED") {
         warnings.push({ code: "ROBOTS_DENIED", message: "A page was skipped because robots.txt disallows it.", url });
       } else {
-        warnings.push({ code: "PAGE_UNREACHABLE", message: "A discovered company page could not be retrieved.", url });
+        warnings.push({ code: "PAGE_UNREACHABLE", message: "A discovered research source could not be retrieved.", url });
       }
       return undefined;
     }
@@ -124,5 +133,5 @@ function toCompanyDocument(page: RetrievedPage, candidate: DiscoveredLink): Rese
 
 function companyNameFromUrl(rawUrl: string): string {
   const hostname = new URL(rawUrl).hostname.replace(/^www\./i, "");
-  return hostname.split(".")[0] || hostname;
+  return (hostname.split(".")[0] || hostname).replace(/[-_]+/g, " ");
 }

@@ -13,7 +13,7 @@ ${jd}
 
 export function companyBriefPrompt(documents: ResearchDocument[]): string {
   return `${SYSTEM_RULES}
-Write a concise, factual company brief using only the retrieved company-page excerpts below. If they do not establish a fact, say it is not available from the retrieved pages. Do not claim a hiring process unless the excerpts state it.
+Write a concise, factual company brief using only the retrieved official/company-source excerpts below. Candidate-reported public discussion is optional interview-format context only: never present it as a verified company fact, job requirement, or hiring policy. If official excerpts do not establish a fact, say it is not available from the retrieved pages.
 ${renderDocuments(documents)}`;
 }
 
@@ -25,7 +25,7 @@ export function questionsPrompt(input: {
   correction?: boolean;
 }): string {
   return `${SYSTEM_RULES}
-Generate likely ${input.category} interview questions. Create questions only for the listed requirements, and only reference IDs from that list. Give each question a specific answer outline and integer difficulty 1-3. ${input.correction ? "These are uncovered requirements: generate at least one question for every listed requirement." : ""}
+Generate likely ${input.category} interview questions. Create questions only for the listed requirements, and only reference IDs from that list. Give each question a specific answer outline and integer difficulty 1-3. ${input.correction ? "These are uncovered requirements: generate at least one question for every listed requirement." : ""} Candidate-reported public discussion can suggest optional interview format or rehearsal framing only; it must never create a requirement, company fact, or claimed hiring policy.
 <TRUSTED_REQUIREMENT_IDS>
 ${JSON.stringify(input.requirements)}
 </TRUSTED_REQUIREMENT_IDS>
@@ -50,7 +50,9 @@ ${input.existing?.length ? `<TRUSTED_EXISTING_FLASHCARDS>\n${JSON.stringify(inpu
 }
 
 function renderDocuments(documents: ResearchDocument[]): string {
-  return documents.slice(0, 6).map((document, index) => {
+  const companyDocuments = documents.filter((document) => document.provenance.type === "company-site").slice(0, 4);
+  const discussionDocuments = documents.filter((document) => document.provenance.type === "public-discussion").slice(0, 2);
+  return [...companyDocuments, ...discussionDocuments].map((document, index) => {
     const source = document.provenance.type === "public-discussion" ? "public-discussion" : "company-site";
     const query = document.provenance.query ? ` query=${JSON.stringify(document.provenance.query)}` : "";
     return `<UNTRUSTED_PAGE index="${index + 1}" source=${source}${query} url="${document.url}">\n${document.text.slice(0, 8_000)}\n</UNTRUSTED_PAGE>`;

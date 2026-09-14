@@ -5,12 +5,16 @@ export interface PublicDiscussionSearchInput {
   /** A displayable company name derived from the supplied company URL. */
   companyName: string;
   companyUrl: string;
+  /** Extracted from the pasted JD, never inferred from public discussion. */
+  roleTitle?: string;
 }
 
 export interface PublicDiscussionSearchResult {
   url: string;
   title?: string;
   score: number;
+  /** Tavily's bounded, source-attributed relevant snippets. */
+  excerpt?: string;
   /** The bounded provider query that surfaced this result. */
   query: string;
 }
@@ -21,7 +25,7 @@ export interface PublicDiscussionSearch {
 }
 
 type TavilyResponse = {
-  results?: Array<{ url?: string; title?: string; score?: number }>;
+  results?: Array<{ url?: string; title?: string; score?: number; content?: string }>;
 };
 
 export interface TavilyPublicDiscussionSearchOptions {
@@ -39,8 +43,8 @@ export interface TavilyPublicDiscussionSearchOptions {
 
 /**
  * Small, deliberately bounded Tavily adapter for public interview-process
- * discussion. It returns links only; each page still has to pass robots and
- * safe-fetch checks before it can become retrieval evidence.
+ * discussion. It returns ranked links plus bounded provider excerpts; direct
+ * page retrieval still has to pass robots and safe-fetch checks.
  */
 export class TavilyPublicDiscussionSearch implements PublicDiscussionSearch {
   private readonly apiKey?: string;
@@ -65,7 +69,7 @@ export class TavilyPublicDiscussionSearch implements PublicDiscussionSearch {
 
   async search(input: PublicDiscussionSearchInput): Promise<PublicDiscussionSearchResult[]> {
     if (!this.apiKey) throw new PipelineError("PUBLIC_DISCUSSION_UNAVAILABLE", "TAVILY_API_KEY is required to search public interview discussions.");
-    const queries = buildInterviewDiscussionQueries(input.companyName).slice(0, this.maxQueries);
+    const queries = buildInterviewDiscussionQueries(input.companyName, input.roleTitle).slice(0, this.maxQueries);
     const batches = await Promise.all(queries.map(async (query) => this.searchQuery(query)));
     const deduplicated = new Map<string, PublicDiscussionSearchResult>();
 
@@ -75,9 +79,8 @@ export class TavilyPublicDiscussionSearch implements PublicDiscussionSearch {
         if (!existing || result.score > existing.score) deduplicated.set(result.url, result);
       }
     }
-    return [...deduplicated.values()]
-      .sort((left, right) => right.score - left.score || left.url.localeCompare(right.url))
-      .slice(0, this.maxResults);
+    return diversifyDomains([...deduplicated.values()]
+      .sort((left, right) => right.score - left.score || left.url.localeCompare(right.url)), this.maxResults);
   }
 
   private async searchQuery(query: string): Promise<PublicDiscussionSearchResult[]> {
@@ -88,15 +91,18 @@ export class TavilyPublicDiscussionSearch implements PublicDiscussionSearch {
         const response = await this.fetchImplementation(this.endpoint, {
           method: "POST",
           signal: controller.signal,
-          headers: { "content-type": "application/json", accept: "application/json" },
+          headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${this.apiKey}` },
           body: JSON.stringify({
-            api_key: this.apiKey,
             query,
             topic: "general",
             search_depth: "basic",
             max_results: this.maxResultsPerQuery,
+            chunks_per_source: 2,
             include_answer: false,
-            include_raw_content: false
+            include_raw_content: false,
+            include_domains: preferredDiscussionDomains,
+            include_domains_mode: "boost",
+            safe_search: true
           })
         });
         if (!response.ok) throw new TavilyHttpError(response.status, `Tavily search returned HTTP ${response.status}.`);
@@ -104,7 +110,7 @@ export class TavilyPublicDiscussionSearch implements PublicDiscussionSearch {
         if (!Array.isArray(payload.results)) return [];
         return payload.results.flatMap((result) => {
           const url = normalizeHttpUrl(result.url);
-          return url ? [{ url, title: cleanTitle(result.title), score: boundedScore(result.score), query }] : [];
+          return url ? [{ url, title: cleanTitle(result.title), score: boundedScore(result.score), excerpt: cleanExcerpt(result.content), query }] : [];
         });
       } catch (error) {
         if (error instanceof PipelineError || error instanceof TavilyHttpError) throw error;
@@ -119,10 +125,13 @@ export class TavilyPublicDiscussionSearch implements PublicDiscussionSearch {
   }
 }
 
-export function buildInterviewDiscussionQueries(companyName: string): string[] {
+export function buildInterviewDiscussionQueries(companyName: string, roleTitle?: string): string[] {
   const safeName = companyName.trim().slice(0, 120) || "company";
-  return [`${safeName} interview process experience`, `${safeName} interview questions hiring process`];
+  const safeRole = roleTitle?.trim().slice(0, 120);
+  return [`"${safeName}" interview experience`, safeRole ? `"${safeName}" "${safeRole}" interview` : `"${safeName}" interview questions hiring process`];
 }
+
+const preferredDiscussionDomains = ["reddit.com", "leetcode.com", "glassdoor.com", "teamblind.com", "quora.com"];
 
 function normalizeHttpUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -141,12 +150,37 @@ function cleanTitle(value: string | undefined): string | undefined {
   return title || undefined;
 }
 
+function cleanExcerpt(value: string | undefined): string | undefined {
+  const excerpt = value?.replace(/\s+/g, " ").trim().slice(0, 1_500);
+  return excerpt || undefined;
+}
+
 function boundedScore(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(Number(value), 1)) : 0;
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(Math.floor(value), max));
+}
+
+function diversifyDomains(results: PublicDiscussionSearchResult[], limit: number): PublicDiscussionSearchResult[] {
+  const selected: PublicDiscussionSearchResult[] = [];
+  const selectedUrls = new Set<string>();
+  const domains = new Set<string>();
+  for (const result of results) {
+    const domain = new URL(result.url).hostname;
+    if (domains.has(domain)) continue;
+    selected.push(result);
+    selectedUrls.add(result.url);
+    domains.add(domain);
+    if (selected.length === limit) return selected;
+  }
+  for (const result of results) {
+    if (selectedUrls.has(result.url)) continue;
+    selected.push(result);
+    if (selected.length === limit) return selected;
+  }
+  return selected;
 }
 
 class TavilyHttpError extends Error {

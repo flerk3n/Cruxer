@@ -7,7 +7,7 @@ import type { SafeTextFetcher } from "./safe-fetch";
 
 describe("TavilyPublicDiscussionSearch", () => {
   it("uses at most two focused queries and returns a bounded, deduplicated ranked result set", async () => {
-    const requests: Array<{ query: string; max_results: number }> = [];
+    const requests: Array<{ query: string; max_results: number; chunks_per_source: number; include_domains_mode: string; include_domains: string[] }> = [];
     const search = new TavilyPublicDiscussionSearch({
       apiKey: "test-key",
       maxQueries: 99,
@@ -15,26 +15,28 @@ describe("TavilyPublicDiscussionSearch", () => {
       maxResults: 2,
       retry: { maxAttempts: 1 },
       fetchImplementation: vi.fn(async (_url, init) => {
-        const body = JSON.parse(String(init?.body)) as { query: string; max_results: number };
+        const body = JSON.parse(String(init?.body)) as { query: string; max_results: number; chunks_per_source: number; include_domains_mode: string; include_domains: string[] };
         requests.push(body);
         return Response.json({ results: [
-          { url: "https://discussion.example/duplicate#fragment", title: "One", score: 0.4 },
-          { url: `https://discussion.example/${requests.length}`, title: "Result", score: 0.9 },
+          { url: "https://discussion.example/duplicate#fragment", title: "One", score: 0.4, content: "Candidate discussion excerpt" },
+          { url: `https://discussion.example/${requests.length}`, title: "Result", score: 0.9, content: "Candidate describes a technical screen" },
           { url: "ftp://not-allowed.example/post", score: 1 }
         ] });
       })
     });
 
-    const results = await search.search({ companyName: "Acme", companyUrl: "https://acme.example" });
+    const results = await search.search({ companyName: "Acme", companyUrl: "https://acme.example", roleTitle: "Senior Engineer" });
 
     expect(requests).toHaveLength(2);
     expect(requests.map((request) => request.query)).toEqual([
-      "Acme interview process experience",
-      "Acme interview questions hiring process"
+      "\"Acme\" interview experience",
+      "\"Acme\" \"Senior Engineer\" interview"
     ]);
     expect(requests.every((request) => request.max_results === 5)).toBe(true);
+    expect(requests.every((request) => request.chunks_per_source === 2 && request.include_domains_mode === "boost" && request.include_domains.includes("reddit.com"))).toBe(true);
     expect(results).toHaveLength(2);
     expect(results.map((result) => result.url)).toEqual(["https://discussion.example/1", "https://discussion.example/2"]);
+    expect(results[0]?.excerpt).toBe("Candidate describes a technical screen");
   });
 });
 
@@ -57,17 +59,22 @@ describe("CompanyResearchService public discussion retrieval", () => {
       publicDiscussionSearch: {
         search: async () => [
           { url: "https://discussion.example/allowed", title: "Acme interview", score: 0.8, query: "acme interview process experience" },
-          { url: "https://discussion.example/blocked", title: "Blocked", score: 0.7, query: "acme interview process experience" }
+          { url: "https://discussion.example/blocked", title: "Blocked", score: 0.7, excerpt: "A candidate mentions a system design interview.", query: "acme interview process experience" }
         ]
       }
     });
 
-    const result = await service.research("https://acme.example");
+    const result = await service.research("https://acme.example", { roleTitle: "Senior Engineer" });
 
     expect(fetched).toEqual(["https://acme.example", "https://discussion.example/allowed"]);
     expect(result.documents[1]).toMatchObject({
       url: "https://discussion.example/allowed",
       provenance: { type: "public-discussion", discovered_by: "tavily", query: "acme interview process experience", title: "Acme interview" }
+    });
+    expect(result.documents[2]).toMatchObject({
+      url: "https://discussion.example/blocked",
+      text: "A candidate mentions a system design interview.",
+      provenance: { type: "public-discussion" }
     });
     expect(result.warnings).toContainEqual(expect.objectContaining({ code: "ROBOTS_DENIED", url: "https://discussion.example/blocked" }));
   });

@@ -65,6 +65,7 @@
 - Corrected flashcard refresh and session behavior: the UI now waits for the asynchronous scoped regeneration to finish before loading its persisted cards, resets into that refreshed set, caps the counter at the kit total, and shows a dedicated completion state with a session-only “Start it over” reset.
 - Added durable recall scoring for flashcards: `Not yet` contributes 0, `Getting there` 50, and `Confident` 100. Each card persists its latest weighted rating (with backward-compatible handling for existing progress), completed sessions show their recall result, and the workspace dashboard exposes current confidence across all active kits and per kit.
 - Fixed account identity flow: registration now validates and persists the supplied name, session responses return it, and the dashboard greeting uses it instead of deriving a name from the email address. Existing records without a stored name retain a safe email-prefix fallback.
+- Strengthened Tavily-backed public-interview research: role-aware exact-name queries now boost relevant public discussion domains while retaining broad-web recall, Tavily’s bounded result snippets provide an attributed fallback when an allowed direct fetch is unavailable, and generation reserves two of six research slots for public discussion. Prompts explicitly limit candidate reports to optional interview-format framing, never requirements or verified company facts.
 
 ## Active commitments
 

@@ -81,7 +81,7 @@ Build owned components from shadcn/ui patterns, Radix primitives, Tailwind seman
 | `CoverageMap` | Compact requirement rows, covered check or action-linked gap | Makes the deterministic coverage result inspectable. |
 | `SourceChip` | Domain name, external-link icon, tooltip/full URL | Opens in a new tab with safe rel attributes. |
 | `CommandMenu` | `⌘/Ctrl + K` kit switcher and actions | Searchable keyboard-first navigation with a compact spring entrance. |
-| `WorkspaceDock` | Floating Home / New kit / Practice / Settings navigation | Shared active indicator, primary New kit action, and safe-area-aware mobile placement. |
+| `WorkspaceDock` | Magic UI magnifying dock with Home / New kit / Practice / Settings | A full-width flex-centred rail guarantees geometric centring; Cruxer tokens, Lucide icons, active state, and safe-area-aware mobile placement remain owned by the product. |
 | `ToastViewport` | Top-centre transient success/information feedback | Dismissible, polite live region; never obscures a form field or the bottom dock. |
 
 Use a maximum of three visual weights per view: canvas, surface, and active/raised. Gradients are restricted to the landing hero’s subtle radial background and practice-session progress glow; never behind text or status data.

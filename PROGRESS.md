@@ -69,6 +69,7 @@
 - Repaired scoped question regeneration UX: “All” now regenerates all question categories rather than silently targeting technical questions, the question bank displays live run-stage feedback until the persisted kit is reloaded, and empty categories now explain when the JD lacks matching requirements instead of appearing to ignore the action.
 - Refined the practice flashcard surface: removed verbose requirement labels from individual cards and introduced a focused recall-card treatment with depth, minimal metadata, a clearer answer reveal, and reduced-motion-safe visual accents.
 - Revamped the authenticated workspace without changing the landing page: added a centred floating dock, workspace-only midnight-indigo colour system and DM Sans typography, bento dashboard, elevated creation/practice/settings panels, top-centre accessible toast viewport, Motion-based gestures/layout entrances, and GSAP’s scoped one-time dashboard scroll reveals. Added `motion` as the React animation dependency; all workspace and API/shared type checks plus the web production build pass.
+- Replaced the custom dock with the generated Magic UI dock after initializing the local shadcn registry. The dock now sits in a full-width flex-centred rail and uses Cruxer’s own palette and Lucide icon set; shadcn’s unsolicited global/button/theme rewrites and dependencies were removed. All 40 tests, workspace type checks, and the production build pass.
 
 ## Active commitments
 

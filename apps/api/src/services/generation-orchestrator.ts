@@ -10,7 +10,7 @@ import { persistedKitSchema } from "../lib/kit-validation.js";
 export type GenerationInput = { jd: string; companyUrl: string; days: number };
 
 const stepNames = ["input", "research", "role", "questions", "flashcards", "coverage", "schedule", "validation"] as const satisfies readonly PipelineStep[];
-const retryableCodes = new Set(["COMPANY_UNREACHABLE", "HTTP_ERROR", "GENERATION_FAILED", "GENERATION_INVALID", "GENERATION_UNAVAILABLE", "RESPONSE_TOO_LARGE"]);
+const retryableCodes = new Set(["COMPANY_UNREACHABLE", "HTTP_ERROR", "GENERATION_FAILED", "GENERATION_RATE_LIMITED", "GENERATION_INVALID", "GENERATION_UNAVAILABLE", "RESPONSE_TOO_LARGE"]);
 
 /**
  * Persists a durable progress record around the shared pipeline. The pipeline is

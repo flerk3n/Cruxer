@@ -78,6 +78,7 @@
 - Closed the remaining scored builder/practice access gaps: company briefs are now revision-guarded inline edits; flashcards can be edited, added, and deleted from an in-kit card library; scoped regeneration now supports the company brief and schedule while preserving other kit material; and every fresh/restarted practice session orders unreviewed and lowest-confidence cards first, then oldest reviews. Added a dashboard-wide session gate so signed-out visitors are redirected before any workspace route renders. API contract tests now cover brief persistence and regeneration scope recognition.
 - Rebuilt the live practice card as a two-sided flashcard: the prompt and answer have distinct faces, reveal uses a 3D card-turn transition, and recording a confidence rating transitions into the next prompt. The interaction preserves keyboard controls and falls back to a restrained fade for reduced-motion preferences.
 - Added an animated stacked-card deck treatment beneath the active practice card so each incoming prompt settles forward from a visible study-card stack.
+- Hardened Gemini generation for the free tier: category calls now pass through a configurable serial request gate (4.5 seconds by default), explicit Gemini 429 retry delays are preserved, and a malformed structured response receives one schema-aware repair prompt before failing cleanly. Added focused tests for pacing, provider delay handling, and bounded repair. The clean live five-case Appendix B run remains pending Gemini quota recovery; local verification is complete.
 
 ## Active commitments
 

@@ -67,6 +67,7 @@
 - Fixed account identity flow: registration now validates and persists the supplied name, session responses return it, and the dashboard greeting uses it instead of deriving a name from the email address. Existing records without a stored name retain a safe email-prefix fallback.
 - Strengthened Tavily-backed public-interview research: role-aware exact-name queries now boost relevant public discussion domains while retaining broad-web recall, Tavily’s bounded result snippets provide an attributed fallback when an allowed direct fetch is unavailable, and generation reserves two of six research slots for public discussion. Prompts explicitly limit candidate reports to optional interview-format framing, never requirements or verified company facts.
 - Repaired scoped question regeneration UX: “All” now regenerates all question categories rather than silently targeting technical questions, the question bank displays live run-stage feedback until the persisted kit is reloaded, and empty categories now explain when the JD lacks matching requirements instead of appearing to ignore the action.
+- Refined the practice flashcard surface: removed verbose requirement labels from individual cards and introduced a focused recall-card treatment with depth, minimal metadata, a clearer answer reveal, and reduced-motion-safe visual accents.
 
 ## Active commitments
 

@@ -5,12 +5,13 @@ import type { AppConfig } from "../config/env.js";
 import { GenerationRun, type GenerationRunRecord } from "../db/models/generation-run.js";
 import { ApiError } from "../lib/errors.js";
 import { requireAuth } from "../middleware/auth.js";
+import { type GenerationOrchestrator } from "../services/generation-orchestrator.js";
 
 const runIdSchema = z.string().refine(isValidObjectId, "Generation run id is invalid.");
 type PersistedRun = GenerationRunRecord & { _id: { toString(): string } };
 
 /** Read-only polling endpoint. Generation orchestration creates and updates these records. */
-export function createGenerationRunsRouter(config: AppConfig): Router {
+export function createGenerationRunsRouter(config: AppConfig, generation: GenerationOrchestrator): Router {
   const router = Router();
   router.use(requireAuth(config));
 
@@ -25,10 +26,20 @@ export function createGenerationRunsRouter(config: AppConfig): Router {
     }
   });
 
+  router.post("/:runId/retry", async (req, res, next) => {
+    try {
+      const runId = runIdSchema.parse(req.params.runId);
+      const generationRun = await generation.retry(req.auth!.userId, runId);
+      res.status(202).json({ generationRun });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }
 
-function serializeGenerationRun(run: PersistedRun): Record<string, unknown> {
+export function serializeGenerationRun(run: PersistedRun): Record<string, unknown> {
   return {
     id: run._id.toString(),
     ...(run.kitId ? { kitId: run.kitId.toString() } : {}),

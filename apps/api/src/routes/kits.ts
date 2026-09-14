@@ -6,17 +6,30 @@ import { Kit, type KitRecord } from "../db/models/kit.js";
 import { ApiError } from "../lib/errors.js";
 import { persistedKitSchema, type PersistedKitPayload } from "../lib/kit-validation.js";
 import { requireAuth } from "../middleware/auth.js";
+import { type GenerationInput, type GenerationOrchestrator } from "../services/generation-orchestrator.js";
 
 const kitIdSchema = z.string().refine(isValidObjectId, "Kit id is invalid.");
 
 // Full document replacement is intentional: every persisted kit is revalidated against
 // the Appendix A contract instead of accepting unvalidated nested patch fragments.
-const createKitSchema = z
-  .object({
-    kit: persistedKitSchema,
-    inputHash: z.string().trim().min(1).max(128).optional()
-  })
-  .strict();
+const generationInputSchema = z.object({
+  jd: z.string().trim().min(1, "A job description is required.").max(50_000),
+  companyUrl: z.string().trim().url().max(2_048).superRefine((value, ctx) => {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Company URL must use HTTP or HTTPS." });
+    }
+    if (url.username || url.password) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Company URL cannot contain credentials." });
+    }
+  }),
+  days: z.number().int().min(1).max(60)
+}).strict();
+
+const createKitSchema = z.union([
+  generationInputSchema,
+  z.object({ kit: persistedKitSchema, inputHash: z.string().trim().min(1).max(128).optional() }).strict()
+]);
 
 const updateKitSchema = z
   .object({
@@ -27,7 +40,7 @@ const updateKitSchema = z
 
 type PersistedKit = KitRecord & { _id: { toString(): string } };
 
-export function createKitsRouter(config: AppConfig): Router {
+export function createKitsRouter(config: AppConfig, generation: GenerationOrchestrator): Router {
   const router = Router();
   router.use(requireAuth(config));
 
@@ -35,7 +48,7 @@ export function createKitsRouter(config: AppConfig): Router {
     try {
       const kits = await Kit.find({ ownerId: req.auth!.userId })
         .sort({ updatedAt: -1 })
-        .select("status revision generationRunId createdAt updatedAt kit.source kit.role.title")
+        .select("status revision generationRunId createdAt updatedAt kit.source kit.role.title generationInput")
         .lean();
 
       res.json({ kits: kits.map(serializeKitSummary) });
@@ -46,16 +59,24 @@ export function createKitsRouter(config: AppConfig): Router {
 
   router.post("/", async (req, res, next) => {
     try {
-      const { kit, inputHash } = createKitSchema.parse(req.body);
-      const created = await Kit.create({
-        ownerId: req.auth!.userId,
-        kit,
-        status: "draft",
-        revision: 0,
-        // A manually created kit has no generation request, but keeping a bounded
-        // caller-provided correlation value makes later generation idempotency possible.
-        inputHash: inputHash ?? "manual"
-      });
+      const input = createKitSchema.parse(req.body);
+      const created = "kit" in input
+        ? await Kit.create({
+            ownerId: req.auth!.userId,
+            kit: input.kit,
+            status: "draft",
+            revision: 0,
+            inputHash: input.inputHash ?? "manual"
+          })
+        : await Kit.create({
+            ownerId: req.auth!.userId,
+            generationInput: input,
+            status: "draft",
+            revision: 0,
+            // This preliminary value is replaced with the canonical content hash when
+            // generation is actually reserved, avoiding duplicate in-flight runs.
+            inputHash: "pending"
+          });
 
       res.status(201).json({ kit: serializeKit(created) });
     } catch (error) {
@@ -97,12 +118,23 @@ export function createKitsRouter(config: AppConfig): Router {
     }
   });
 
+  router.post("/:kitId/generate", async (req, res, next) => {
+    try {
+      const kitId = kitIdSchema.parse(req.params.kitId);
+      const generationRun = await generation.start(req.auth!.userId, kitId);
+      res.status(202).json({ generationRun });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }
 
 export function serializeKit(kit: PersistedKit): {
   id: string;
-  kit: PersistedKitPayload;
+  kit?: PersistedKitPayload;
+  generationInput?: GenerationInput;
   status: KitRecord["status"];
   generationRunId?: string;
   revision: number;
@@ -111,7 +143,8 @@ export function serializeKit(kit: PersistedKit): {
 } {
   return {
     id: kit._id.toString(),
-    kit: kit.kit as PersistedKitPayload,
+    ...(kit.kit ? { kit: kit.kit as PersistedKitPayload } : {}),
+    ...(kit.generationInput ? { generationInput: kit.generationInput } : {}),
     status: kit.status,
     ...(kit.generationRunId ? { generationRunId: kit.generationRunId.toString() } : {}),
     revision: kit.revision,
@@ -122,15 +155,21 @@ export function serializeKit(kit: PersistedKit): {
 
 function serializeKitSummary(kit: Record<string, unknown>): Record<string, unknown> {
   const rawKit = kit.kit as { source?: { company?: string }; role?: { title?: string } } | undefined;
+  const generationInput = kit.generationInput as GenerationInput | undefined;
   const generationRunId = kit.generationRunId as { toString(): string } | undefined;
   return {
     id: String(kit._id),
     status: kit.status,
     revision: kit.revision,
     ...(generationRunId ? { generationRunId: generationRunId.toString() } : {}),
-    company: rawKit?.source?.company ?? "",
-    roleTitle: rawKit?.role?.title ?? "",
+    company: rawKit?.source?.company ?? companyFromUrl(generationInput?.companyUrl),
+    roleTitle: rawKit?.role?.title ?? "Draft kit",
     createdAt: new Date(String(kit.createdAt)).toISOString(),
     updatedAt: new Date(String(kit.updatedAt)).toISOString()
   };
+}
+
+function companyFromUrl(rawUrl: string | undefined): string {
+  if (!rawUrl) return "";
+  try { return new URL(rawUrl).hostname; } catch { return ""; }
 }

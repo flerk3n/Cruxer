@@ -8,8 +8,15 @@ import { rateLimit } from "./middleware/rate-limit.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createGenerationRunsRouter } from "./routes/generation-runs.js";
 import { createKitsRouter } from "./routes/kits.js";
+import { CruxerKitPipeline, type KitPipeline } from "../../../packages/pipeline/src/index.js";
+import { GenerationOrchestrator } from "./services/generation-orchestrator.js";
 
-export function createApp(config: AppConfig): Express {
+export interface AppDependencies {
+  /** Tests inject a deterministic fake; production uses the shared Gemini pipeline. */
+  pipeline?: KitPipeline;
+}
+
+export function createApp(config: AppConfig, dependencies: AppDependencies = {}): Express {
   const app = express();
   app.disable("x-powered-by");
   // Render sits behind a trusted proxy; required for accurate IP limits and secure cookies.
@@ -22,8 +29,9 @@ export function createApp(config: AppConfig): Express {
 
   app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
   app.use("/auth", rateLimit({ windowMs: 15 * 60 * 1000, max: 25, keyPrefix: "auth" }), createAuthRouter(config));
-  app.use("/kits", createKitsRouter(config));
-  app.use("/generation-runs", createGenerationRunsRouter(config));
+  const generation = new GenerationOrchestrator(dependencies.pipeline ?? new CruxerKitPipeline());
+  app.use("/kits", createKitsRouter(config, generation));
+  app.use("/generation-runs", createGenerationRunsRouter(config, generation));
 
   app.use(notFound);
   app.use(errorHandler);

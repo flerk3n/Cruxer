@@ -1,4 +1,4 @@
-import { type Model, Schema, Types, model, models } from "mongoose";
+import mongoose, { type Model, Schema, Types, model } from "mongoose";
 
 export interface PracticeProgressRecord {
   ownerId: Types.ObjectId;
@@ -25,4 +25,4 @@ const practiceProgressSchema = new Schema<PracticeProgressRecord>(
 
 practiceProgressSchema.index({ ownerId: 1, kitId: 1, flashcardId: 1 }, { unique: true });
 
-export const PracticeProgress = (models.PracticeProgress as Model<PracticeProgressRecord> | undefined) ?? model<PracticeProgressRecord>("PracticeProgress", practiceProgressSchema);
+export const PracticeProgress = (mongoose.models.PracticeProgress as Model<PracticeProgressRecord> | undefined) ?? model<PracticeProgressRecord>("PracticeProgress", practiceProgressSchema);

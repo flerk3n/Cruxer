@@ -53,9 +53,33 @@ function normalizeError(error: unknown): ApiError {
   if (isDuplicateKeyError(error)) {
     return new ApiError(409, "CONFLICT", "That record already exists.");
   }
+  if (isMalformedJsonError(error)) {
+    return new ApiError(400, "INVALID_JSON", "The request body must contain valid JSON.");
+  }
+  if (isPayloadTooLargeError(error)) {
+    return new ApiError(413, "PAYLOAD_TOO_LARGE", "The request body is too large.");
+  }
   return new ApiError(500, "INTERNAL_ERROR", "An unexpected error occurred.");
 }
 
 function isDuplicateKeyError(error: unknown): error is { code: number } {
   return typeof error === "object" && error !== null && "code" in error && error.code === 11_000;
+}
+
+function isMalformedJsonError(error: unknown): boolean {
+  return (
+    error instanceof SyntaxError &&
+    typeof error === "object" &&
+    "status" in error &&
+    (error as { status?: unknown }).status === 400
+  );
+}
+
+function isPayloadTooLargeError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    (error as { type?: unknown }).type === "entity.too.large"
+  );
 }

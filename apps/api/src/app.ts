@@ -6,6 +6,8 @@ import type { AppConfig } from "./config/env.js";
 import { errorHandler, notFound, requestContext } from "./lib/errors.js";
 import { rateLimit } from "./middleware/rate-limit.js";
 import { createAuthRouter } from "./routes/auth.js";
+import { createGenerationRunsRouter } from "./routes/generation-runs.js";
+import { createKitsRouter } from "./routes/kits.js";
 
 export function createApp(config: AppConfig): Express {
   const app = express();
@@ -20,6 +22,8 @@ export function createApp(config: AppConfig): Express {
 
   app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
   app.use("/auth", rateLimit({ windowMs: 15 * 60 * 1000, max: 25, keyPrefix: "auth" }), createAuthRouter(config));
+  app.use("/kits", createKitsRouter(config));
+  app.use("/generation-runs", createGenerationRunsRouter(config));
 
   app.use(notFound);
   app.use(errorHandler);

@@ -14,6 +14,7 @@ import PillNav from "@/components/PillNav";
 import logoMark from "../../../logo.svg";
 import { Safari } from "@/components/ui/safari";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
+import { api } from "@/lib/api";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -21,7 +22,7 @@ const navItems = [
   { label: "Home", href: "/" },
   { label: "Method", href: "#method" },
   { label: "Toolkit", href: "#toolkit" },
-  { label: "Start", href: "/register" }
+  { label: "Start", href: "/login" }
 ];
 
 const headline = ["Know", "the", "company.", "Own", "the", "room."];
@@ -29,6 +30,17 @@ const headline = ["Know", "the", "company.", "Own", "the", "room."];
 export function LandingHero() {
   const root = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  async function handleStart(item: { href: string }, event: React.MouseEvent<HTMLAnchorElement>) {
+    if (item.href !== "/login") return;
+    event.preventDefault();
+    try {
+      await api.session();
+      router.push("/dashboard");
+    } catch {
+      router.push("/login");
+    }
+  }
 
   useGSAP(() => {
     const media = gsap.matchMedia();
@@ -66,7 +78,7 @@ export function LandingHero() {
         <Image src={logoMark} alt="" className="h-[5.5rem] w-[5.5rem] brightness-0 invert" priority />
         <span className="marketing-wordmark text-[clamp(2.3rem,5vw,4.3rem)] leading-none text-white">Cruxer</span>
       </Link>
-      <div className="marketing-nav"><PillNav logo={logoMark.src} logoAlt="Cruxer" items={navItems} activeHref="/" baseColor="#11172f" pillColor="#eef2ff" pillTextColor="#11172f" hoveredPillTextColor="#eef2ff" onMobileMenuClick={() => undefined} showLogo={false} /></div>
+      <div className="marketing-nav"><PillNav logo={logoMark.src} logoAlt="Cruxer" items={navItems} activeHref="/" baseColor="#11172f" pillColor="#eef2ff" pillTextColor="#11172f" hoveredPillTextColor="#eef2ff" onMobileMenuClick={() => undefined} onItemClick={handleStart} showLogo={false} /></div>
     </header>
 
     <main>

@@ -16,7 +16,8 @@ const PillNav = ({
   pillTextColor,
   onMobileMenuClick,
   initialLoadAnimation = true,
-  showLogo = true
+  showLogo = true,
+  onItemClick = /** @type {any} */ (() => {})
 }) => {
   const resolvedPillTextColor = pillTextColor ?? baseColor;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -265,6 +266,7 @@ const PillNav = ({
                     aria-label={item.ariaLabel || item.label}
                     onMouseEnter={() => handleEnter(i)}
                     onMouseLeave={() => handleLeave(i)}
+                    onClick={event => onItemClick?.(item, event)}
                   >
                     <span
                       className="hover-circle"
@@ -288,6 +290,7 @@ const PillNav = ({
                     aria-label={item.ariaLabel || item.label}
                     onMouseEnter={() => handleEnter(i)}
                     onMouseLeave={() => handleLeave(i)}
+                    onClick={event => onItemClick?.(item, event)}
                   >
                     <span
                       className="hover-circle"
@@ -328,7 +331,10 @@ const PillNav = ({
                 <Link
                   href={item.href}
                   className={`mobile-menu-link${activeHref === item.href ? ' is-active' : ''}`}
-                  onClick={() => setIsMobileMenuOpen(false)}
+                  onClick={event => {
+                    setIsMobileMenuOpen(false);
+                    onItemClick?.(item, event);
+                  }}
                 >
                   {item.label}
                 </Link>
@@ -336,7 +342,10 @@ const PillNav = ({
                 <a
                   href={item.href}
                   className={`mobile-menu-link${activeHref === item.href ? ' is-active' : ''}`}
-                  onClick={() => setIsMobileMenuOpen(false)}
+                  onClick={event => {
+                    setIsMobileMenuOpen(false);
+                    onItemClick?.(item, event);
+                  }}
                 >
                   {item.label}
                 </a>

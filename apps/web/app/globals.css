@@ -51,6 +51,8 @@ body {
 @layer base {
   :focus-visible { outline: 2px solid hsl(var(--signal)); outline-offset: 3px; }
   button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+  .animate-shimmer-slide { animation: shimmer-slide var(--speed) ease-in-out infinite alternate; }
+  .animate-spin-around { animation: spin-around calc(var(--speed) * 2) infinite linear; }
 }
 
 @layer components {
@@ -220,4 +222,25 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}
+
+@keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+  }
+}
+
+@keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+  }
+  15%, 35% {
+    transform: translateZ(0) rotate(90deg);
+  }
+  65%, 85% {
+    transform: translateZ(0) rotate(270deg);
+  }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+  }
 }

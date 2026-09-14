@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
@@ -12,6 +13,7 @@ import Folder from "@/components/Folder";
 import PillNav from "@/components/PillNav";
 import logoMark from "../../../logo.svg";
 import { Safari } from "@/components/ui/safari";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -26,6 +28,7 @@ const headline = ["Know", "the", "company.", "Own", "the", "room."];
 
 export function LandingHero() {
   const root = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useGSAP(() => {
     const media = gsap.matchMedia();
@@ -76,9 +79,9 @@ export function LandingHero() {
           <h1 className="marketing-hero-title marketing-hero-title-bold max-w-5xl text-[clamp(4.2rem,11vw,10.7rem)] leading-[.78] text-white">
             {headline.map((word, index) => <span data-headline-word key={word + "-" + index} className={word === "company." ? "marketing-italic" : ""}>{word} </span>)}
           </h1>
-          <div data-intro className="mt-10 flex max-w-xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-            <p className="max-w-sm text-base leading-7 text-slate-200 sm:text-lg">Cruxer turns a role and a company into the exact evidence, questions, and practice that will make your next conversation count.</p>
-            <Link href="/register" className="marketing-cta pointer-events-auto shrink-0">Build a kit <ArrowDownRight size={18} /></Link>
+          <div data-intro className="mt-10 flex max-w-4xl flex-col gap-7 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-left text-lg font-medium leading-8 text-slate-100 sm:text-[1.3rem] sm:leading-9"><span className="block sm:whitespace-nowrap">Cruxer turns a role and a company into the exact evidence,</span><span className="block sm:whitespace-nowrap">questions, and practice that will make your next conversation count.</span></p>
+            <ShimmerButton type="button" onClick={() => router.push("/register")} shimmerColor="#6366f1" shimmerSize="0.1em" shimmerDuration="2.6s" background="#eef2ff" className="pointer-events-auto min-h-14 px-7 text-[15px] font-bold text-slate-950 shadow-[0_16px_34px_rgba(165,180,252,.25)] hover:scale-[1.02]">Build a kit <ArrowDownRight size={18} /></ShimmerButton>
           </div>
         </div>
       </section>
@@ -92,7 +95,7 @@ export function LandingHero() {
 
       <section id="method" data-scroll-reveal className="marketing-frame grid gap-12 border-t border-white/10 py-24 sm:py-32 lg:grid-cols-[.82fr_1.18fr] lg:gap-20">
         <div data-reveal-piece><p className="marketing-eyebrow">01 — The read</p><h2 className="marketing-section-title marketing-section-title-sans mt-6 text-5xl leading-[.87] text-white sm:text-6xl">The role says one thing.<br /><i>The signals say more.</i></h2></div>
-        <div data-reveal-piece className="self-end"><p className="max-w-xl text-xl leading-9 text-slate-300">A job description is only the starting point. Cruxer traces the product, the moment, and the team around it—then turns that research into a sharp plan you can actually use.</p><div className="mt-10 grid gap-3 sm:grid-cols-3"><Stat value="01" label="Company context" /><Stat value="02" label="Role signals" /><Stat value="03" label="Your proof" /></div></div>
+        <div data-reveal-piece className="self-end"><p className="max-w-xl text-xl leading-9 text-slate-300">A job description is only the starting point. Cruxer traces the product, the moment, and the team around it then turns that research into a sharp plan you can actually use.</p><div className="mt-10 grid gap-3 sm:grid-cols-3"><Stat value="01" label="Company context" /><Stat value="02" label="Role signals" /><Stat value="03" label="Your proof" /></div></div>
       </section>
 
       <section id="toolkit" data-scroll-reveal className="marketing-frame pb-28 sm:pb-40">

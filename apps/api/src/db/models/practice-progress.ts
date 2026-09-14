@@ -5,6 +5,7 @@ export interface PracticeProgressRecord {
   kitId: Types.ObjectId;
   flashcardId: string;
   lastConfidence?: 1 | 2 | 3;
+  confidenceScore: number;
   attempts: number;
   lastReviewedAt?: Date;
   createdAt: Date;
@@ -17,6 +18,7 @@ const practiceProgressSchema = new Schema<PracticeProgressRecord>(
     kitId: { type: Schema.Types.ObjectId, ref: "Kit", required: true, index: true },
     flashcardId: { type: String, required: true },
     lastConfidence: { type: Number, enum: [1, 2, 3] },
+    confidenceScore: { type: Number, required: true, default: 0, min: 0, max: 100 },
     attempts: { type: Number, required: true, default: 0, min: 0 },
     lastReviewedAt: Date
   },

@@ -144,6 +144,24 @@ describe("API authorization and builder contracts", () => {
     expect(responses).toEqual(Array.from({ length: 30 }, () => 200));
   });
 
+  it("returns latest weighted flashcard confidence in the user-scoped dashboard", async () => {
+    models.Kit.find.mockReturnValue(query([fixtureKit()]));
+    models.PracticeProgress.find.mockReturnValue(query([{
+      kitId: { toString: () => KIT_ID },
+      flashcardId: "flashcard-1",
+      lastConfidence: 2,
+      confidenceScore: 50
+    }]));
+    models.StudyActivity.find.mockReturnValue(query([]));
+
+    const { response, body } = await request(baseUrl, "/workspace/overview?days=7&timeZone=UTC");
+    const overview = body as unknown as { overview: { reviewedCards: number; confidencePercent: number }; kits: Array<{ confidencePercent: number }> };
+
+    expect(response.status).toBe(200);
+    expect(overview.overview).toMatchObject({ reviewedCards: 1, confidencePercent: 50 });
+    expect(overview.kits[0]?.confidencePercent).toBe(50);
+  });
+
   it("scopes kit reads to the authenticated owner and does not expose another user's kit", async () => {
     models.Kit.findOne.mockReturnValue(query(undefined));
 

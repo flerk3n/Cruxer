@@ -95,6 +95,7 @@ export type KitDocument = {
 export type PracticeProgress = {
   flashcardId: string;
   lastConfidence?: 1 | 2 | 3;
+  confidenceScore: number;
   attempts: number;
   lastReviewedAt?: string;
   updatedAt?: string;
@@ -131,10 +132,11 @@ export type WorkspaceKitProgress = {
   totalCards: number;
   reviewedCards: number;
   progressPercent: number;
+  confidencePercent: number;
   questionCount: number;
 };
 export type WorkspaceOverview = {
-  overview: { activeKits: number; totalCards: number; reviewedCards: number; totalQuestions: number; progressPercent: number };
+  overview: { activeKits: number; totalCards: number; reviewedCards: number; totalQuestions: number; progressPercent: number; confidencePercent: number };
   kits: WorkspaceKitProgress[];
   activity: Omit<KitActivity, "schedule">;
 };

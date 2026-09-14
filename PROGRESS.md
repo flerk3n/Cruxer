@@ -63,6 +63,7 @@
 - Added requirement-aware flashcard volume and coverage: new/full-regenerated kits target at least 12 cards, two cues for each must-have requirement and one for each nice-to-have, capped at 24. A short model result receives one targeted follow-up generation pass, then only question/requirement-grounded fallback cues for remaining gaps. Existing kits are intentionally not overwritten automatically.
 - Added a scoped “Refresh flashcards” action in practice so an existing kit can adopt the new flashcard target without recreating the role or replacing questions and other editor-owned material.
 - Corrected flashcard refresh and session behavior: the UI now waits for the asynchronous scoped regeneration to finish before loading its persisted cards, resets into that refreshed set, caps the counter at the kit total, and shows a dedicated completion state with a session-only “Start it over” reset.
+- Added durable recall scoring for flashcards: `Not yet` contributes 0, `Getting there` 50, and `Confident` 100. Each card persists its latest weighted rating (with backward-compatible handling for existing progress), completed sessions show their recall result, and the workspace dashboard exposes current confidence across all active kits and per kit.
 
 ## Active commitments
 

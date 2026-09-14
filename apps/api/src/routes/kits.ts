@@ -8,6 +8,7 @@ import { StudyActivity } from "../db/models/study-activity.js";
 import { normalizeEditor, rebuildQuestionDerivedFields } from "../lib/builder.js";
 import { ApiError } from "../lib/errors.js";
 import { persistedKitSchema, type PersistedKitPayload } from "../lib/kit-validation.js";
+import { confidenceScore } from "../lib/practice-score.js";
 import {
   DEFAULT_ACTIVITY_DAYS,
   DEFAULT_TIME_ZONE,
@@ -320,7 +321,7 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
       });
       const progress = await PracticeProgress.findOneAndUpdate(
         { ownerId: req.auth!.userId, kitId, flashcardId },
-        { $set: { lastConfidence: confidence, lastReviewedAt: new Date() }, $inc: { attempts: 1 } },
+        { $set: { lastConfidence: confidence, confidenceScore: confidenceScore(confidence), lastReviewedAt: new Date() }, $inc: { attempts: 1 } },
         { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
       );
       await recordFlashcardActivity(req.auth!.userId, kitId, confidence, timeZone);
@@ -462,6 +463,7 @@ async function mutateKit(
 function serializePracticeProgress(progress: {
   flashcardId: string;
   lastConfidence?: 1 | 2 | 3;
+  confidenceScore?: number;
   attempts: number;
   lastReviewedAt?: Date;
   updatedAt: Date;
@@ -469,6 +471,7 @@ function serializePracticeProgress(progress: {
   return {
     flashcardId: progress.flashcardId,
     ...(progress.lastConfidence ? { lastConfidence: progress.lastConfidence } : {}),
+    confidenceScore: progress.confidenceScore ?? confidenceScore(progress.lastConfidence ?? 1),
     attempts: progress.attempts,
     ...(progress.lastReviewedAt ? { lastReviewedAt: progress.lastReviewedAt.toISOString() } : {}),
     updatedAt: progress.updatedAt.toISOString()

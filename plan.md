@@ -115,6 +115,7 @@ Passwords use bcrypt with a documented cost factor. Use short-lived signed JWT s
 - **Generation view:** a durable stepper backed by the generation run, source/warning summary, recoverable failure messages and retry/reopen actions. Never fake percentage or hide a partial research result.
 - **Kit builder:** tabs/sections for company brief, role, categorized questions, flashcards, schedule, and coverage. Inline save on blur/explicit keyboard save, local optimistic updates, accessible drag handles and up/down controls as a non-pointer alternative, category move menu, add/delete confirmation, and narrow regeneration controls.
 - **Practice:** one flashcard at a time, reveal answer, confidence 1–3 input, covered/remaining progress, and next-session ordering by lowest confidence first, then least recently reviewed. This simple deterministic confidence-weighted ordering will be defended in the README.
+- **Readiness runway:** derive a current study-day position from the requested schedule and recorded activity, show the exact day-by-day timeline and next action, and persist a bounded daily-effort aggregate for an accessible GitHub-style graph. The graph is an aid to choosing the next session, not an optional gamification feature or a substitute for the required practice tracking.
 
 Use semantic elements, visible focus states, labels and live regions for generation/errors, touch-sized controls, and responsive layouts verified at phone and laptop widths.
 

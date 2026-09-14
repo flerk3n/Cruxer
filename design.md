@@ -160,6 +160,15 @@ Before reveal, the card has one focal action. After reveal, confidence actions a
 
 The schedule uses a vertical day rail: Day 1 begins with a signal accent, later days recede slightly, and each day has focus, question count, and integer minutes. Requirement chips make must-have coverage discoverable. On mobile, days become an accordion with a persistent “Day X / Y” progress indicator.
 
+### 7. Readiness runway and daily effort
+
+The preparation view adds a compact **Readiness runway** above the detailed schedule. It answers three questions at a glance: *what should I do today?*, *how many study days remain?*, and *am I building confidence over time?* It does not pretend to know an interview calendar date—the brief supplies a number of days, so the UI truthfully shows `Day X of N` and `N − X study days remaining`.
+
+- **Today card:** the next schedule day’s focus, exact minutes, question count, and one “Begin practice” action. Completed material is visible but never blocks the next action.
+- **Runway:** a horizontal sequence of the exact requested days. Each stop contains a day number, focus, minutes, and status icon/text (up next, in progress, complete). It scrolls horizontally on phones and is an accordion after the summary, avoiding a dense, fake calendar.
+- **Daily effort graph:** a GitHub-inspired, bounded grid covering the preparation window—not a year-long streak. A cell represents a study day and its intensity reflects completed practice effort (no activity, started, reviewed, confident). It has an adjacent textual total, visible legend, `aria-label` on every cell, keyboard-focusable buttons, and a tooltip with the date/day, reviews, and confidence. Color is reinforced by icon/pattern/title so it is never the sole carrier of status.
+- **Useful reflection, not gamification:** the graph never uses shame-oriented streak copy. A quiet “Last session” and “least-confident topics next” link turns history into the next concrete preparation action.
+
 ## Motion and feedback
 
 Motion is functional, short, and composited where possible. CSS transitions remain the default for routine state feedback; GSAP is reserved for the few sequences where its timeline control adds visible value.
@@ -213,4 +222,5 @@ Implementation rules:
 - [Radix accessibility guidance](https://www.radix-ui.com/primitives/docs/overview/accessibility) informs keyboard, focus, and ARIA behavior.
 - [Motion’s reduced-motion guidance](https://motion.dev/docs/react-accessibility) informs the animation policy.
 - [GSAP’s React integration](https://www.npmjs.com/package/@gsap/react) and [reduced-motion guidance](https://gsap.com/docs/v3/GSAP/gsap.matchMedia/) inform component scoping, cleanup, and accessibility.
+- [GitHub’s contribution-calendar documentation](https://docs.github.com/en/account-and-profile/concepts/contributions-on-your-profile), [W3C’s grid pattern](https://www.w3.org/WAI/ARIA/apg/patterns/grid/), [WCAG guidance on non-color cues](https://w3c.github.io/wcag/understanding/use-of-color.html), and [NN/g progress-indicator guidance](https://www.nngroup.com/articles/designing-for-waits-and-interruptions/) inform the readiness timeline and effort graph.
 - [Next.js font loading guidance](https://nextjs.org/docs/pages/getting-started/fonts) informs self-hosted font loading.

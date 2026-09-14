@@ -13,7 +13,7 @@
 | Repository foundation | Complete | npm workspaces, TypeScript, Vitest, and the shared domain package are installed and verified. |
 | Backend/API | Core flow complete | Auth, owner-scoped draft/generation runs, revision-guarded question/flashcard mutations, scoped regeneration preservation, and practice-progress persistence are implemented. |
 | Research/generation pipeline | Generation complete | Gemini 3.1 Flash-Lite structured generation, JD evidence checks, source-safe crawling, Tavily public-discussion research, separate question categories, coverage correction/fallback, deterministic schedule, and final Appendix A validation are implemented. |
-| Frontend | Core flow complete | Live auth/dashboard/generation polling plus optimistic persisted builder edits, conflict reload, scoped regeneration states, and practice confidence are implemented. |
+| Frontend | Core flow complete | Live auth/dashboard/generation polling, optimistic persisted builder edits, conflict reload, scoped regeneration states, practice confidence, and the Readiness Runway/activity graph are implemented. |
 | Deployment and walkthrough | Not started | Reserved for the release phase. |
 
 ## Completed in this update
@@ -42,6 +42,9 @@
 - Added revision-guarded persistent builder mutations: question/flashcard add, edit, delete, reorder, category move, and preservation-aware regeneration.
 - Added persisted practice confidence/progress and connected all builder actions to optimistic web API operations with safe conflict reload.
 - Re-verified the integrated application: 25 tests pass, all workspace TypeScript checks pass, the production web build passes, and the diff has no whitespace errors.
+- Researched progress, grid, and visual-accessibility patterns and added the Readiness Runway: server-derived Day X/N and remaining-day timeline, today’s next action, daily check-in, and a bounded accessible contribution-style effort graph.
+- Added timezone-safe, owner-scoped daily effort aggregation driven by practice confidence so the graph reflects real activity rather than client-only data.
+- Re-verified after the UX addition: 25 tests pass, all workspace TypeScript checks pass, the production web build passes, and the diff has no whitespace errors.
 
 ## Active commitments
 

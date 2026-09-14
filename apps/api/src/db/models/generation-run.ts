@@ -12,6 +12,7 @@ export interface GenerationRunRecord {
   warnings: Array<{ code: string; message: string; step?: string }>;
   retryCount: number;
   terminalError?: { code: string; message: string };
+  regeneration?: { section: "questions" | "flashcards"; category?: "technical" | "behavioural" | "system-design" | "company-fit" };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,7 +42,11 @@ const generationRunSchema = new Schema<GenerationRunRecord>(
     steps: { type: [stepSchema], default: [] },
     warnings: { type: [{ code: String, message: String, step: String }], default: [] },
     retryCount: { type: Number, required: true, default: 0, min: 0 },
-    terminalError: { type: { code: String, message: String }, required: false }
+    terminalError: { type: { code: String, message: String }, required: false },
+    regeneration: {
+      section: { type: String, enum: ["questions", "flashcards"] },
+      category: { type: String, enum: ["technical", "behavioural", "system-design", "company-fit"] }
+    }
   },
   { timestamps: true, versionKey: false, strict: "throw" }
 );

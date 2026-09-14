@@ -2,6 +2,15 @@ import mongoose, { type Model, Schema, Types, model } from "mongoose";
 
 export type KitStatus = "draft" | "generating" | "ready" | "failed";
 
+/**
+ * UI-only provenance is intentionally stored beside, rather than inside, the
+ * Appendix A kit payload. That keeps every generated/saved kit contract clean
+ * while allowing a later regeneration to identify user-owned material.
+ */
+export interface BuilderEditorState {
+  questions: Record<string, { manual: boolean; edited: boolean; pinned: boolean }>;
+}
+
 export interface KitRecord {
   ownerId: Types.ObjectId;
   /** Absent while the user has only saved the source material for a new kit. */
@@ -11,6 +20,7 @@ export interface KitRecord {
   generationRunId?: Types.ObjectId;
   revision: number;
   inputHash: string;
+  editor?: BuilderEditorState;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,7 +38,8 @@ const kitSchema = new Schema<KitRecord>(
     status: { type: String, enum: ["draft", "generating", "ready", "failed"], required: true },
     generationRunId: { type: Schema.Types.ObjectId, ref: "GenerationRun" },
     revision: { type: Number, required: true, default: 0, min: 0 },
-    inputHash: { type: String, required: true, index: true }
+    inputHash: { type: String, required: true, index: true },
+    editor: { type: Schema.Types.Mixed, default: () => ({ questions: {} }) }
   },
   { timestamps: true, versionKey: false, strict: "throw" }
 );

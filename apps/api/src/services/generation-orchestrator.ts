@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import type { KitPipeline, PipelineStep } from "../../../../packages/pipeline/src/index.js";
 import { PipelineError } from "../../../../packages/pipeline/src/index.js";
 import { GenerationRun, type GenerationRunRecord } from "../db/models/generation-run.js";
-import { Kit } from "../db/models/kit.js";
+import { Kit, type KitRecord } from "../db/models/kit.js";
 import { ApiError } from "../lib/errors.js";
+import { mergeRegeneratedSection, normalizeEditor } from "../lib/builder.js";
 import { persistedKitSchema } from "../lib/kit-validation.js";
 
 export type GenerationInput = { jd: string; companyUrl: string; days: number };
@@ -29,6 +30,38 @@ export class GenerationOrchestrator {
     }
 
     return this.createAttempt(ownerId, kitId, kit.generationInput);
+  }
+
+  /** Reserve a revision before expensive work so stale builder edits cannot overwrite a regeneration. */
+  async regenerate(
+    ownerId: string,
+    kitId: string,
+    request: { revision: number; section: "questions" | "flashcards"; category?: "technical" | "behavioural" | "system-design" | "company-fit" }
+  ): Promise<{ kit: KitRecord & { _id: { toString(): string } }; generationRun: { id: string; kitId: string } }> {
+    const kit = await Kit.findOne({ _id: kitId, ownerId }).select("generationInput status revision kit").lean();
+    if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
+    if (!kit.kit || !kit.generationInput) throw new ApiError(409, "KIT_NOT_READY", "Generate this kit before regenerating a section.");
+    if (kit.status === "generating") throw new ApiError(409, "GENERATION_IN_PROGRESS", "This kit is already being generated.");
+    if (kit.revision !== request.revision) throw new ApiError(409, "REVISION_CONFLICT", "This kit has changed. Reload it before regenerating.");
+
+    const inputHash = hashInput(kit.generationInput);
+    const active = await GenerationRun.exists({ ownerId, inputHash, status: { $in: ["queued", "running"] } });
+    if (active) throw new ApiError(409, "GENERATION_IN_PROGRESS", "An identical generation request is already in progress.");
+    const run = await GenerationRun.create({
+      ownerId, kitId, inputHash, input: kit.generationInput, status: "queued", steps: initialSteps(), warnings: [], retryCount: 0,
+      regeneration: { section: request.section, ...(request.category ? { category: request.category } : {}) }
+    });
+    const reservedKit = await Kit.findOneAndUpdate(
+      { _id: kitId, ownerId, revision: request.revision, status: { $ne: "generating" } },
+      { $set: { status: "generating", generationRunId: run._id, inputHash }, $inc: { revision: 1 } },
+      { new: true, runValidators: true }
+    );
+    if (!reservedKit) {
+      await GenerationRun.deleteOne({ _id: run._id, status: "queued" });
+      throw new ApiError(409, "REVISION_CONFLICT", "This kit has changed. Reload it before regenerating.");
+    }
+    void this.execute(run._id.toString());
+    return { kit: reservedKit as KitRecord & { _id: { toString(): string } }, generationRun: { id: run._id.toString(), kitId } };
   }
 
   async retry(ownerId: string, runId: string): Promise<{ id: string; kitId: string }> {
@@ -109,10 +142,20 @@ export class GenerationOrchestrator {
       );
       // The pipeline validates its output too; this second boundary protects the database
       // should a future pipeline implementation accidentally loosen that contract.
-      const kit = persistedKitSchema.parse(generated);
+      const generatedKit = persistedKitSchema.parse(generated);
+      const update = run.regeneration
+        ? await this.mergeRegeneration(run, generatedKit)
+        : { kit: generatedKit, editor: undefined };
       const saved = await Kit.findOneAndUpdate(
         { _id: run.kitId, ownerId: run.ownerId, generationRunId: run._id },
-        { $set: { kit, status: "ready" }, $inc: { revision: 1 } },
+        {
+          $set: {
+            kit: update.kit,
+            status: "ready",
+            ...(update.editor ? { editor: update.editor } : {})
+          },
+          $inc: { revision: 1 }
+        },
         { new: true, runValidators: true }
       );
       if (!saved) throw new Error("The kit generation lease is no longer valid.");
@@ -130,6 +173,22 @@ export class GenerationOrchestrator {
       );
       await this.failCurrentStep(runId, failure.message);
     }
+  }
+
+  private async mergeRegeneration(run: GenerationRunRecord & { _id: { toString(): string } }, generated: ReturnType<typeof persistedKitSchema.parse>): Promise<{ kit: ReturnType<typeof persistedKitSchema.parse>; editor: ReturnType<typeof normalizeEditor> }> {
+    const current = await Kit.findOne({ _id: run.kitId, ownerId: run.ownerId, generationRunId: run._id }).select("kit editor").lean();
+    if (!current?.kit || !run.regeneration) throw new Error("The kit regeneration lease is no longer valid.");
+    const editor = normalizeEditor(current.editor);
+    const kit = mergeRegeneratedSection(
+      persistedKitSchema.parse(current.kit),
+      generated,
+      editor,
+      run.regeneration.section,
+      run.regeneration.category
+    );
+    const validIds = new Set(kit.questions.map((question) => question.id));
+    editor.questions = Object.fromEntries(Object.entries(editor.questions).filter(([id]) => validIds.has(id)));
+    return { kit, editor };
   }
 
   private async recordStep(runId: string, event: { step: PipelineStep; status: "started" | "completed" | "warning" | "failed"; message?: string }): Promise<void> {

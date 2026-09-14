@@ -31,6 +31,7 @@ import { useGSAP } from "@gsap/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
+import { useToast } from "@/components/toast-provider";
 import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitDocument, type KitFlashcard, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -111,7 +112,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [draft, setDraft] = useState({ prompt: "", answer: "", category: "technical" as Question["category"] });
   const [savedId, setSavedId] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState<Category | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { notify } = useToast();
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [addingQuestion, setAddingQuestion] = useState(false);
   const [deletingQuestionId, setDeletingQuestionId] = useState<string | null>(null);
@@ -129,6 +130,11 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [addingFlashcard, setAddingFlashcard] = useState(false);
   const [addFlashcardDraft, setAddFlashcardDraft] = useState({ front: "", back: "" });
   const [deletingFlashcardId, setDeletingFlashcardId] = useState<string | null>(null);
+
+  function setNotice(message: string | null) {
+    if (!message) return;
+    notify(message, /could not|not been changed|incomplete|unavailable|needs at least|complete both|add a front/i.test(message) ? "info" : "success");
+  }
 
   useGSAP(() => {
     const media = gsap.matchMedia();
@@ -585,7 +591,6 @@ export function KitBuilder({ kitId }: { kitId: string }) {
       </main>
     </div>
 
-    {notice && <div className="fixed bottom-20 right-4 z-30 max-w-sm rounded-float border bg-surface px-4 py-3 text-sm shadow-ambient lg:bottom-6" role="status"><div className="flex items-start gap-2"><CheckCircle2 size={17} className="mt-0.5 shrink-0 text-success" /><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="-mr-1 -mt-1 grid h-8 w-8 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Dismiss message"><X size={15} /></button></div></div>}
     {regenerating && <RegenerationDialog category={regenerating} editedCount={questions.filter((question) => (regenerating === "all" || question.category === regenerating) && question.edited).length} replaceCount={questions.filter((question) => (regenerating === "all" || question.category === regenerating) && !question.edited).length} onCancel={() => setRegenerating(null)} onConfirm={confirmRegeneration} />}
     {addingQuestion && <AddQuestionDialog draft={addDraft} onDraft={setAddDraft} onCancel={() => setAddingQuestion(false)} onConfirm={addQuestion} />}
     {deletingQuestionId && <DeleteQuestionDialog question={questions.find((question) => question.id === deletingQuestionId)} onCancel={() => setDeletingQuestionId(null)} onConfirm={() => { void deleteQuestion(deletingQuestionId); setDeletingQuestionId(null); }} />}

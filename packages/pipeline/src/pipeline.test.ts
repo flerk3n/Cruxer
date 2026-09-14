@@ -70,6 +70,42 @@ describe("CruxerKitPipeline", () => {
     expect(kit.questions[0]?.id).toMatch(/^q-fallback-/);
   });
 
+  it("returns a valid thin-JD kit while surfacing non-fatal research warnings", async () => {
+    const { CruxerKitPipeline } = await import("./pipeline");
+    const events: Array<{ step: string; status: string; message?: string }> = [];
+    const generator: JsonGenerator = {
+      async generate<TSchema extends z.ZodType>(request: { prompt: string; schema: TSchema }): Promise<z.infer<TSchema>> {
+        const value = request.prompt.includes("Extract only explicit")
+          ? { title: "Engineer", seniority: "Not specified", location: "", responsibilities: [], requirements: [] }
+          : request.prompt.includes("factual company brief")
+            ? { summary: "Limited public information.", what_they_do: "Not established." }
+            : request.prompt.includes("Create compact recall")
+              ? { flashcards: [] }
+              : { questions: [] };
+        return request.schema.parse(value);
+      }
+    };
+    const pipeline = new CruxerKitPipeline({
+      generator,
+      research: {
+        research: async () => ({
+          documents: [],
+          warnings: [{ code: "PUBLIC_DISCUSSION_UNAVAILABLE", message: "Public discussion search was unavailable." }]
+        })
+      }
+    });
+
+    const kit = await pipeline.run(
+      { jd: "Seeking an engineer.", company_url: "https://acme.example", days: 1 },
+      { onStep: (event) => { events.push(event); } }
+    );
+
+    expect(kit.role.requirements).toEqual([]);
+    expect(kit.questions).toEqual([]);
+    expect(events).toContainEqual({ step: "research", status: "warning", message: "Public discussion search was unavailable." });
+    expect(events).toContainEqual({ step: "role", status: "completed", message: "The posting contained few explicit requirements." });
+  });
+
   it("retries malformed Gemini JSON before returning Zod-validated data", async () => {
     let calls = 0;
     const generator = new GeminiJsonGenerator({
@@ -80,6 +116,21 @@ describe("CruxerKitPipeline", () => {
         return { text: calls === 1 ? "not-json" : '{"value":"ok"}' };
       } } }
     });
+    await expect(generator.generate({ prompt: "test", schema: z.object({ value: z.literal("ok") }) })).resolves.toEqual({ value: "ok" });
+    expect(calls).toBe(2);
+  });
+
+  it("retries JSON that parses but fails the requested model schema", async () => {
+    let calls = 0;
+    const generator = new GeminiJsonGenerator({
+      apiKey: "test",
+      retry: { baseDelayMs: 0, sleep: async () => undefined },
+      client: { models: { generateContent: async () => {
+        calls += 1;
+        return { text: calls === 1 ? '{"value":"not-ok"}' : '{"value":"ok"}' };
+      } } }
+    });
+
     await expect(generator.generate({ prompt: "test", schema: z.object({ value: z.literal("ok") }) })).resolves.toEqual({ value: "ok" });
     expect(calls).toBe(2);
   });

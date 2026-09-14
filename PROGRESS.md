@@ -1,7 +1,7 @@
 # Cruxer — Progress Log
 
 **Last updated:** 2026-09-14 (Asia/Kolkata)  
-**Current phase:** Core application complete; release readiness and deployment next  
+**Current phase:** Release-ready locally; public deployment awaits service credentials  
 **Overall state:** In progress
 
 ## Current status
@@ -14,7 +14,7 @@
 | Backend/API | Core flow complete | Auth, owner-scoped draft/generation runs, revision-guarded question/flashcard mutations, scoped regeneration preservation, and practice-progress persistence are implemented. |
 | Research/generation pipeline | Generation complete | Gemini 3.1 Flash-Lite structured generation, JD evidence checks, source-safe crawling, Tavily public-discussion research, separate question categories, coverage correction/fallback, deterministic schedule, and final Appendix A validation are implemented. |
 | Frontend | Core flow complete | Live auth/dashboard/generation polling, optimistic persisted builder edits, conflict reload, scoped regeneration states, practice confidence, and the Readiness Runway/activity graph are implemented. |
-| Deployment and walkthrough | Not started | Reserved for the release phase. |
+| Deployment and walkthrough | Configuration complete | Render Blueprint, Vercel rewrite configuration, environment templates, and a submission README are committed. Public URLs and walkthrough recording await service-account access. |
 
 ## Completed in this update
 
@@ -45,6 +45,9 @@
 - Researched progress, grid, and visual-accessibility patterns and added the Readiness Runway: server-derived Day X/N and remaining-day timeline, today’s next action, daily check-in, and a bounded accessible contribution-style effort graph.
 - Added timezone-safe, owner-scoped daily effort aggregation driven by practice confidence so the graph reflects real activity rather than client-only data.
 - Re-verified after the UX addition: 25 tests pass, all workspace TypeScript checks pass, the production web build passes, and the diff has no whitespace errors.
+- Added isolated API contract tests for authentication, ownership, generation protection, revision conflicts, pinned provenance, and duplicate-run prevention (6 API tests).
+- Added Render Blueprint and Vercel deployment configuration, environment templates, and the complete submission README.
+- Ran the final local release gate: 25 shared tests, 6 API contract tests, all workspace TypeScript checks, and the production web build pass.
 
 ## Active commitments
 
@@ -54,8 +57,8 @@
 
 ## Known blockers
 
-No implementation blocker. A Gemini API key, Tavily API key, MongoDB Atlas URI, JWT secret, and deployment accounts are required only for the live deployed path; their names are documented in `.env.example`. `npm install` reports 10 upstream audit advisories; no automatic or breaking audit remediation has been applied.
+Public deployment requires the user’s MongoDB Atlas, Gemini, Tavily, Render, and Vercel accounts/secrets; no local code change can safely substitute for them. Required values and the exact host-to-host mapping are documented in README and the environment templates. `npm install` reports 10 upstream audit advisories; no automatic or breaking audit remediation has been applied.
 
 ## Next milestone
 
-Write the submission README and deployment configuration, add final API integration/browser smoke tests, provision deployment secrets, deploy Vercel + Render + Atlas, run clean-clone/evaluator verification, and record the walkthrough.
+Provision the documented secrets, apply `render.yaml`, deploy Vercel with its server-side `API_ORIGIN`, verify the public health/auth/generation paths and clean-clone evaluator, then record the required 3–4 minute walkthrough.

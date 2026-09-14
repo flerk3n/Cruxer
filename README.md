@@ -58,7 +58,7 @@ The test suite protects schema/invariants, schedule allocation (including 1 and 
 npm run evaluate -- --input cases.json --output kits.json
 ```
 
-Input is an Appendix B array of `{ id, jd, company_url, days }`. The evaluator invokes the exact same `CruxerKitPipeline` as the API, processes cases conservatively in sequence for free-tier limits, writes a single Appendix B envelope, and records an individual failure without aborting later cases.
+Input is an Appendix B array of `{ id, jd, company_url, days }`. The evaluator invokes the exact same `CruxerKitPipeline` as the API, processes cases conservatively in sequence for free-tier limits, writes a single Appendix B envelope, and records an individual failure without aborting later cases. Gemini requests are also serialised within each kit using `GEMINI_MIN_REQUEST_INTERVAL_MS` (4.5 seconds by default); provider-advertised 429 retry delays are honoured, and one schema-aware repair is attempted for malformed structured output.
 
 ## Architecture and generation sequence
 
@@ -85,7 +85,7 @@ Practice orders the next flashcards by lower confidence then older review. Confi
 - Every protected route checks the kit owner. CORS has an explicit web origin and browser traffic is normally proxied through Vercel.
 - Retrieval rejects non-HTTP(S), credential-bearing, private/loopback production URLs, and unsafe redirects; it bounds time, response type and response size. Local evaluator fixtures are permitted only outside production.
 - Fetched pages and pasted JDs are delimited content, never instructions. LLM JSON and final kits receive runtime validation.
-- Render Free can cold-start and has no durable local filesystem; all state is MongoDB. Provider quotas vary, so retries are bounded and warnings are surfaced. A production deployment needs the listed secrets and service accounts.
+- Render Free can cold-start and has no durable local filesystem; all state is MongoDB. Provider quotas vary, so requests are paced, retries are bounded, and warnings are surfaced. A production deployment needs the listed secrets and service accounts.
 
 ## Deployment
 

@@ -77,9 +77,14 @@ const flashcardPatchSchema = flashcardInputSchema.omit({ id: true }).partial().e
 const addQuestionSchema = z.object({ revision: z.number().int().min(0), question: questionInputSchema }).strict();
 const addFlashcardSchema = z.object({ revision: z.number().int().min(0), flashcard: flashcardInputSchema }).strict();
 const reorderQuestionsSchema = z.object({ revision: z.number().int().min(0), questionIds: z.array(z.string().trim().min(1)).max(100) }).strict();
+const companyBriefPatchSchema = z.object({
+  revision: z.number().int().min(0),
+  summary: z.string().trim().min(1).max(12_000).optional(),
+  what_they_do: z.string().trim().min(1).max(8_000).optional()
+}).strict().refine((value) => value.summary !== undefined || value.what_they_do !== undefined, "Provide a company brief field.");
 const regenerateSchema = z.object({
   revision: z.number().int().min(0),
-  section: z.enum(["questions", "flashcards"]),
+  section: z.enum(["questions", "flashcards", "company-brief", "schedule"]),
   category: questionCategorySchema.optional()
 }).strict().superRefine((value, ctx) => {
   if (value.category && value.section !== "questions") ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["category"], message: "A category can only be used when regenerating questions." });
@@ -176,6 +181,18 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
     } catch (error) {
       next(error);
     }
+  });
+
+  router.patch("/:kitId/company-brief", async (req, res, next) => {
+    try {
+      const kitId = kitIdSchema.parse(req.params.kitId);
+      const input = companyBriefPatchSchema.parse(req.body);
+      const kit = await mutateKit(req.auth!.userId, kitId, input.revision, (draft) => {
+        const { revision: _revision, ...brief } = input;
+        return { ...draft, company_brief: { ...draft.company_brief, ...brief } };
+      });
+      res.json({ kit: serializeKit(kit) });
+    } catch (error) { next(error); }
   });
 
   router.post("/:kitId/questions", async (req, res, next) => {

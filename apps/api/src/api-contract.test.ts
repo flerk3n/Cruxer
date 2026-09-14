@@ -239,6 +239,29 @@ describe("API authorization and builder contracts", () => {
     );
   });
 
+  it("persists a revision-guarded company brief edit without accepting an unvalidated document", async () => {
+    const current = fixtureKit();
+    const saved = fixtureKit({
+      revision: 5,
+      kit: { ...current.kit, company_brief: { summary: "A revised, user-owned brief", what_they_do: "Builds reliable developer tools", sources: ["https://example.com"] } }
+    });
+    models.Kit.findOne.mockReturnValue(query(current));
+    models.Kit.findOneAndUpdate.mockResolvedValue(saved);
+
+    const { response, body } = await request(baseUrl, `/kits/${KIT_ID}/company-brief`, {
+      method: "PATCH",
+      body: JSON.stringify({ revision: 4, summary: "A revised, user-owned brief", what_they_do: "Builds reliable developer tools" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(body.kit?.revision).toBe(5);
+    expect(models.Kit.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: KIT_ID, ownerId: OWNER_ID, revision: 4, status: { $ne: "generating" } },
+      expect.objectContaining({ $inc: { revision: 1 } }),
+      expect.objectContaining({ new: true })
+    );
+  });
+
   it("refuses to start duplicate generation for a kit already marked generating", async () => {
     models.Kit.findOne.mockReturnValue(query(fixtureKit({ status: "generating" })));
 

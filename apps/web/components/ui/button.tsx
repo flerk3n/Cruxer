@@ -22,7 +22,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       ref={ref}
       className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-[13px] font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-60",
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-[13px] font-semibold transition-all duration-150 motion-safe:hover:-translate-y-px motion-safe:active:translate-y-0 disabled:pointer-events-none disabled:opacity-60",
         size === "sm" && "min-h-9 rounded-lg px-3",
         size === "icon" && "h-11 w-11 px-0",
         styles[variant],

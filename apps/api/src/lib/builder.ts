@@ -53,11 +53,25 @@ export function mergeRegeneratedSection(
   current: PersistedKitPayload,
   generated: PersistedKitPayload,
   editor: BuilderEditorState,
-  section: "questions" | "flashcards",
+  section: "questions" | "flashcards" | "company-brief" | "schedule",
   category?: Question["category"]
 ): PersistedKitPayload {
   if (section === "flashcards") {
     return persistedKitSchema.parse({ ...current, flashcards: generated.flashcards as Flashcard[] });
+  }
+
+  if (section === "company-brief") {
+    return persistedKitSchema.parse({ ...current, company_brief: generated.company_brief });
+  }
+
+  if (section === "schedule") {
+    // Schedules are deterministic and must always reference the user's current
+    // questions, including manual and edited material. Do not copy ids from a
+    // fresh pipeline run, whose independently generated question ids differ.
+    return persistedKitSchema.parse({
+      ...current,
+      schedule: buildSchedule(current.schedule.days_available, current.questions as Question[], current.role.requirements)
+    });
   }
 
   const existing = current.questions as Question[];

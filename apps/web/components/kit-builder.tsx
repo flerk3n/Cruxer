@@ -28,10 +28,12 @@ import {
 } from "lucide-react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
-import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitDocument, type KitQuestion, type QuestionCategory } from "@/lib/api";
+import { useToast } from "@/components/toast-provider";
+import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitDocument, type KitFlashcard, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(useGSAP);
@@ -49,7 +51,7 @@ type Question = {
   edited?: boolean;
 };
 
-type Flashcard = { id: string; front: string; back: string };
+type Flashcard = KitFlashcard;
 type StudyDay = { day: number; focus: string; questionIds: string[]; minutes: number };
 
 function studyPlan(scheduleDays?: Array<{ day: number; focus: string; question_ids: string[]; minutes: number }>): StudyDay[] {
@@ -71,6 +73,20 @@ function regenerationLabel(category: Category): string {
   return category === "all" ? "All" : categoryLabels[category];
 }
 
+/** A new session starts with unreviewed/weak cards, then breaks ties by oldest review. */
+function orderFlashcards(cards: Flashcard[], progress: PracticeProgress[]): Flashcard[] {
+  const byId = new Map(progress.map((item) => [item.flashcardId, item]));
+  return [...cards].sort((left, right) => {
+    const leftProgress = byId.get(left.id);
+    const rightProgress = byId.get(right.id);
+    const confidence = (leftProgress?.confidenceScore ?? 0) - (rightProgress?.confidenceScore ?? 0);
+    if (confidence !== 0) return confidence;
+    const leftReviewed = leftProgress?.lastReviewedAt ? new Date(leftProgress.lastReviewedAt).getTime() : 0;
+    const rightReviewed = rightProgress?.lastReviewedAt ? new Date(rightProgress.lastReviewedAt).getTime() : 0;
+    return leftReviewed - rightReviewed;
+  });
+}
+
 const viewItems: Array<{ id: View; label: string; icon: typeof FileText }> = [
   { id: "overview", label: "Overview", icon: FileText },
   { id: "questions", label: "Questions", icon: ListChecks },
@@ -86,16 +102,18 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [view, setView] = useState<View>(() => searchParams.get("view") === "flashcards" ? "flashcards" : "overview");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [cards, setCards] = useState<Flashcard[]>([]);
+  const [practiceProgress, setPracticeProgress] = useState<PracticeProgress[]>([]);
   const [kitDocument, setKitDocument] = useState<KitDocument | null>(null);
   const [generationRun, setGenerationRun] = useState<GenerationRun | null>(null);
   const kitRef = useRef<KitDocument | null>(null);
+  const practiceProgressRef = useRef<PracticeProgress[]>([]);
   const [loadingKit, setLoadingKit] = useState(true);
   const [category, setCategory] = useState<Category>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ prompt: "", answer: "", category: "technical" as Question["category"] });
   const [savedId, setSavedId] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState<Category | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { notify } = useToast();
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [addingQuestion, setAddingQuestion] = useState(false);
   const [deletingQuestionId, setDeletingQuestionId] = useState<string | null>(null);
@@ -106,6 +124,18 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const [sessionComplete, setSessionComplete] = useState(false);
   const [sessionConfidence, setSessionConfidence] = useState({ low: 0, medium: 0, high: 0 });
   const [expandedDay, setExpandedDay] = useState(1);
+  const [briefEditing, setBriefEditing] = useState(false);
+  const [briefDraft, setBriefDraft] = useState({ summary: "", whatTheyDo: "" });
+  const [editingFlashcardId, setEditingFlashcardId] = useState<string | null>(null);
+  const [flashcardDraft, setFlashcardDraft] = useState({ front: "", back: "" });
+  const [addingFlashcard, setAddingFlashcard] = useState(false);
+  const [addFlashcardDraft, setAddFlashcardDraft] = useState({ front: "", back: "" });
+  const [deletingFlashcardId, setDeletingFlashcardId] = useState<string | null>(null);
+
+  function setNotice(message: string | null) {
+    if (!message) return;
+    notify(message, /could not|not been changed|incomplete|unavailable|needs at least|complete both|add a front/i.test(message) ? "info" : "success");
+  }
 
   useGSAP(() => {
     const media = gsap.matchMedia();
@@ -123,7 +153,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
   const activeFlashcard = cards[flashcardIndex];
   const plan = useMemo(() => studyPlan(kitDocument?.kit?.schedule.days), [kitDocument?.kit?.schedule.days]);
 
-  function applyRemote(next: KitDocument) {
+  function applyRemote(next: KitDocument, options: { preserveCards?: boolean } = {}) {
     kitRef.current = next;
     setKitDocument(next);
     if (!next.kit) return;
@@ -137,10 +167,17 @@ export function KitBuilder({ kitId }: { kitId: string }) {
       difficulty: question.difficulty,
       edited: Boolean(editor[question.id]?.edited || editor[question.id]?.manual || editor[question.id]?.pinned)
     })));
-    setCards(next.kit.flashcards.map(({ id, front, back }) => ({ id, front, back })));
+    if (!options.preserveCards) setCards(next.kit.flashcards.map(({ id, front, back, requirement_ids }) => ({ id, front, back, requirement_ids })));
+  }
+
+  function applyPracticeProgress(next: PracticeProgress[]) {
+    practiceProgressRef.current = next;
+    setPracticeProgress(next);
   }
 
   function restartFlashcardSession(message?: string) {
+    const nextCards = kitRef.current?.kit?.flashcards ?? [];
+    setCards(orderFlashcards(nextCards, practiceProgressRef.current));
     setFlashcardIndex(0);
     setSessionReviewed(0);
     setSessionComplete(false);
@@ -151,9 +188,11 @@ export function KitBuilder({ kitId }: { kitId: string }) {
 
   useEffect(() => {
     let alive = true;
-    void api.getKit(kitId).then(({ kit }) => {
+    void Promise.all([api.getKit(kitId), api.getPractice(kitId).catch(() => ({ progress: [] }))]).then(([{ kit }, { progress }]) => {
       if (!alive) return;
       applyRemote(kit);
+      applyPracticeProgress(progress);
+      if (kit.kit) setCards(orderFlashcards(kit.kit.flashcards, progress));
       if (kit.generationRunId) {
         void api.getGenerationRun(kit.generationRunId).then(({ generationRun: nextRun }) => {
           if (alive) setGenerationRun(nextRun);
@@ -300,6 +339,106 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     } catch (cause) { setNotice(`Could not refresh flashcards. ${apiErrorMessage(cause)}`); } finally { setPendingAction(null); }
   }
 
+  async function regenerateSection(section: "company-brief" | "schedule") {
+    const label = section === "company-brief" ? "Company brief" : "Study plan";
+    setPendingAction(`regenerate-${section}`);
+    setGenerationRun(null);
+    try {
+      const document = kitRef.current;
+      if (!document?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
+      const response = await api.regenerate(kitId, document.revision, section);
+      if (response.generationRun) {
+        const result = await pollGenerationRun(response.generationRun.id, { onUpdate: setGenerationRun });
+        if (result.status !== "ready") { setNotice(result.terminalError?.message ?? `${label} refresh could not be completed.`); return; }
+        const { kit } = await api.getKit(kitId);
+        applyRemote(kit);
+      } else if (response.kit) {
+        applyRemote(response.kit);
+      } else {
+        throw new CruxerApiError(`Cruxer did not start the ${label.toLowerCase()} refresh.`, 0, "GENERATION_UNAVAILABLE");
+      }
+      setNotice(`${label} refreshed. Your other kit sections stayed unchanged.`);
+    } catch (cause) {
+      setNotice(`Could not refresh the ${label.toLowerCase()}. ${apiErrorMessage(cause)}`);
+    } finally { setPendingAction(null); }
+  }
+
+  function startBriefEditing() {
+    const brief = kitRef.current?.kit?.company_brief;
+    if (!brief) return;
+    setBriefDraft({ summary: brief.summary, whatTheyDo: brief.what_they_do });
+    setBriefEditing(true);
+  }
+
+  async function saveCompanyBrief() {
+    const summary = briefDraft.summary.trim();
+    const what_they_do = briefDraft.whatTheyDo.trim();
+    if (!summary || !what_they_do) { setNotice("Complete both company brief fields before saving."); return; }
+    const document = kitRef.current;
+    if (!document?.kit) return;
+    setPendingAction("save-company-brief");
+    try {
+      const { kit } = await api.updateCompanyBrief(kitId, document.revision, { summary, what_they_do });
+      applyRemote(kit);
+      setBriefEditing(false);
+      setNotice("Company brief saved.");
+    } catch (cause) { setNotice(`Could not save the company brief. ${apiErrorMessage(cause)}`); } finally { setPendingAction(null); }
+  }
+
+  function startEditingFlashcard(card: Flashcard) {
+    setEditingFlashcardId(card.id);
+    setFlashcardDraft({ front: card.front, back: card.back });
+  }
+
+  async function saveFlashcard(flashcardId: string) {
+    const card = cards.find((item) => item.id === flashcardId);
+    const front = flashcardDraft.front.trim();
+    const back = flashcardDraft.back.trim();
+    if (!card || !front || !back) { setNotice("Complete both sides of the flashcard before saving."); return; }
+    const document = kitRef.current;
+    if (!document?.kit) return;
+    setPendingAction(flashcardId);
+    try {
+      const { kit } = await api.updateFlashcard(kitId, flashcardId, document.revision, { front, back });
+      applyRemote(kit);
+      restartFlashcardSession();
+      setEditingFlashcardId(null);
+      setNotice("Flashcard saved.");
+    } catch (cause) { setNotice(`Could not save the flashcard. ${apiErrorMessage(cause)}`); } finally { setPendingAction(null); }
+  }
+
+  async function addFlashcard() {
+    const front = addFlashcardDraft.front.trim();
+    const back = addFlashcardDraft.back.trim();
+    const document = kitRef.current;
+    const requirementId = document?.kit?.role.requirements[0]?.id;
+    if (!front || !back) { setNotice("Add a front and back before saving the flashcard."); return; }
+    if (!document?.kit || !requirementId) { setNotice("This kit needs at least one role requirement before a flashcard can be added."); return; }
+    setPendingAction("add-flashcard");
+    try {
+      const flashcard: KitFlashcard = { id: `manual-card-${crypto.randomUUID()}`, front, back, requirement_ids: [requirementId] };
+      const { kit } = await api.addFlashcard(kitId, document.revision, flashcard);
+      applyRemote(kit);
+      restartFlashcardSession();
+      setAddingFlashcard(false);
+      setAddFlashcardDraft({ front: "", back: "" });
+      setNotice("Flashcard added.");
+    } catch (cause) { setNotice(`Could not add the flashcard. ${apiErrorMessage(cause)}`); } finally { setPendingAction(null); }
+  }
+
+  async function deleteFlashcard(flashcardId: string) {
+    const document = kitRef.current;
+    if (!document?.kit) return;
+    setPendingAction(flashcardId);
+    try {
+      const { kit } = await api.deleteFlashcard(kitId, flashcardId, document.revision);
+      applyRemote(kit);
+      applyPracticeProgress(practiceProgressRef.current.filter((item) => item.flashcardId !== flashcardId));
+      restartFlashcardSession();
+      setNotice("Flashcard removed.");
+    } catch (cause) { setNotice(`Could not remove the flashcard. ${apiErrorMessage(cause)}`); } finally { setPendingAction(null); }
+  }
+
   async function recordConfidence(value: string) {
     if (!activeFlashcard) {
       setNotice("There are no flashcards in this kit yet.");
@@ -314,9 +453,9 @@ export function KitBuilder({ kitId }: { kitId: string }) {
     else setFlashcardIndex((current) => current + 1);
     try {
       if (!kitRef.current?.kit) throw new CruxerApiError("The saved kit is not available yet.", 0, "KIT_UNAVAILABLE");
-      const { kit } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
-      applyRemote(kit);
-      setNotice(isLastCard ? `${label} recorded. You completed this session.` : `${label} recorded. Next card ready.`);
+      const { kit, progress } = await api.recordPractice(kitId, activeFlashcard.id, kitRef.current.revision, Number(value) as 1 | 2 | 3, browserTimeZone());
+      applyRemote(kit, { preserveCards: true });
+      applyPracticeProgress([...practiceProgressRef.current.filter((item) => item.flashcardId !== progress.flashcardId), progress]);
     } catch (cause) {
       setNotice(`${label} saved for this session. ${apiErrorMessage(cause)}`);
     }
@@ -413,7 +552,20 @@ export function KitBuilder({ kitId }: { kitId: string }) {
         {viewItems.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => setView(id)} className={cn("inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-colors lg:flex lg:w-full", view === id ? "bg-surface text-ink shadow-sm" : "text-muted-ink hover:bg-surface-raised hover:text-ink")} aria-current={view === id ? "page" : undefined}><Icon size={16} />{label}</button>)}
       </nav>
       <main className="min-w-0" aria-live="polite">
-        {view === "overview" && <Overview onOpenQuestions={() => setView("questions")} requirements={kitDocument.kit.role.requirements} kit={kitDocument.kit} />}
+        {view === "overview" && <Overview
+          onOpenQuestions={() => setView("questions")}
+          requirements={kitDocument.kit.role.requirements}
+          kit={kitDocument.kit}
+          editing={briefEditing}
+          draft={briefDraft}
+          saving={pendingAction === "save-company-brief"}
+          regenerating={pendingAction === "regenerate-company-brief"}
+          onEdit={startBriefEditing}
+          onDraft={setBriefDraft}
+          onCancel={() => setBriefEditing(false)}
+          onSave={saveCompanyBrief}
+          onRegenerate={() => void regenerateSection("company-brief")}
+        />}
         {view === "questions" && <QuestionsView
           category={category}
           editingId={editingId}
@@ -434,21 +586,21 @@ export function KitBuilder({ kitId }: { kitId: string }) {
           regenerating={pendingAction === "regenerate"}
           generationRun={generationRun}
         />}
-        {view === "flashcards" && <FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={sessionReviewed} sessionConfidence={sessionConfidence} complete={sessionComplete} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => restartFlashcardSession("Practice session restarted.")} onRegenerate={regenerateFlashcards} regenerating={pendingAction === "regenerate-flashcards"} />}
-        {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} />}
+        {view === "flashcards" && <><FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={sessionReviewed} sessionConfidence={sessionConfidence} complete={sessionComplete} prioritised={practiceProgress.length > 0} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => restartFlashcardSession("Practice session restarted.")} onRegenerate={regenerateFlashcards} regenerating={pendingAction === "regenerate-flashcards"} /><FlashcardLibrary cards={cards} editingId={editingFlashcardId} draft={flashcardDraft} adding={addingFlashcard} addDraft={addFlashcardDraft} saving={pendingAction} onEdit={startEditingFlashcard} onDraft={setFlashcardDraft} onCancelEdit={() => setEditingFlashcardId(null)} onSave={saveFlashcard} onAdd={() => setAddingFlashcard(true)} onAddDraft={setAddFlashcardDraft} onCancelAdd={() => setAddingFlashcard(false)} onConfirmAdd={addFlashcard} onDelete={setDeletingFlashcardId} /></>}
+        {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} onRegenerate={() => void regenerateSection("schedule")} regenerating={pendingAction === "regenerate-schedule"} generationRun={generationRun} />}
       </main>
     </div>
 
-    {notice && <div className="fixed bottom-20 right-4 z-30 max-w-sm rounded-float border bg-surface px-4 py-3 text-sm shadow-ambient lg:bottom-6" role="status"><div className="flex items-start gap-2"><CheckCircle2 size={17} className="mt-0.5 shrink-0 text-success" /><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="-mr-1 -mt-1 grid h-8 w-8 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Dismiss message"><X size={15} /></button></div></div>}
     {regenerating && <RegenerationDialog category={regenerating} editedCount={questions.filter((question) => (regenerating === "all" || question.category === regenerating) && question.edited).length} replaceCount={questions.filter((question) => (regenerating === "all" || question.category === regenerating) && !question.edited).length} onCancel={() => setRegenerating(null)} onConfirm={confirmRegeneration} />}
     {addingQuestion && <AddQuestionDialog draft={addDraft} onDraft={setAddDraft} onCancel={() => setAddingQuestion(false)} onConfirm={addQuestion} />}
     {deletingQuestionId && <DeleteQuestionDialog question={questions.find((question) => question.id === deletingQuestionId)} onCancel={() => setDeletingQuestionId(null)} onConfirm={() => { void deleteQuestion(deletingQuestionId); setDeletingQuestionId(null); }} />}
+    {deletingFlashcardId && <DeleteFlashcardDialog flashcard={cards.find((card) => card.id === deletingFlashcardId)} onCancel={() => setDeletingFlashcardId(null)} onConfirm={() => { void deleteFlashcard(deletingFlashcardId); setDeletingFlashcardId(null); }} />}
   </div>;
 }
 
-function Overview({ onOpenQuestions, requirements: liveRequirements, kit }: { onOpenQuestions: () => void; requirements: Array<{ id: string; text: string; priority: string }>; kit: NonNullable<KitDocument["kit"]> }) {
+function Overview({ onOpenQuestions, requirements: liveRequirements, kit, editing, draft, saving, regenerating, onEdit, onDraft, onCancel, onSave, onRegenerate }: { onOpenQuestions: () => void; requirements: Array<{ id: string; text: string; priority: string }>; kit: NonNullable<KitDocument["kit"]>; editing: boolean; draft: { summary: string; whatTheyDo: string }; saving: boolean; regenerating: boolean; onEdit: () => void; onDraft: (draft: { summary: string; whatTheyDo: string }) => void; onCancel: () => void; onSave: () => void; onRegenerate: () => void }) {
   return <div className="space-y-8">
-    <section><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">Company brief</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Product context, not guesswork.</h2></div></div><Card className="mt-4 p-5 sm:p-6"><p className="max-w-3xl text-[15px] leading-7">{kit.company_brief.summary}</p><div className="mt-6 grid gap-3 border-t pt-5 sm:grid-cols-2"><Insight title="What they do" text={kit.company_brief.what_they_do} /><Insight title="Interview signal" text="Use the role requirements and company brief together to make your examples specific." /></div><div className="mt-5 flex flex-wrap gap-2" aria-label="Research sources">{kit.company_brief.sources.slice(0, 3).map((href) => <Source key={href} href={href} label={new URL(href).hostname} />)}</div></Card></section>
+    <section><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">Company brief</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Product context, not guesswork.</h2></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={editing || regenerating}>{regenerating ? <LoaderCircle className="animate-spin" size={15} /> : <Sparkles size={15} />}{regenerating ? "Refreshing…" : "Refresh brief"}</Button>{!editing && <Button size="sm" variant="secondary" onClick={onEdit}><Pencil size={15} />Edit brief</Button>}</div></div><Card className="mt-4 p-5 sm:p-6">{editing ? <div className="space-y-4"><label className="block"><span className="text-xs font-medium text-muted-ink">Company summary</span><textarea autoFocus value={draft.summary} onChange={(event) => onDraft({ ...draft, summary: event.target.value })} className="mt-1.5 min-h-28 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">What they do</span><textarea value={draft.whatTheyDo} onChange={(event) => onDraft({ ...draft, whatTheyDo: event.target.value })} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><div className="flex flex-wrap items-center gap-2"><Button size="sm" onClick={onSave} disabled={saving}>{saving ? "Saving…" : <><Check size={15} />Save brief</>}</Button><Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button></div></div> : <><p className="max-w-3xl text-[15px] leading-7">{kit.company_brief.summary}</p><div className="mt-6 grid gap-3 border-t pt-5 sm:grid-cols-2"><Insight title="What they do" text={kit.company_brief.what_they_do} /><Insight title="Interview signal" text="Use the role requirements and company brief together to make your examples specific." /></div></>}<div className="mt-5 flex flex-wrap gap-2" aria-label="Research sources">{kit.company_brief.sources.slice(0, 3).map((href) => <Source key={href} href={href} label={new URL(href).hostname} />)}</div></Card></section>
     <section className="grid gap-4"><Card className="p-5 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">Coverage</p><h2 className="mt-1 text-lg font-semibold">{liveRequirements.length} requirements mapped</h2></div><span className="inline-flex items-center gap-1.5 text-sm font-medium text-success"><CheckCircle2 size={17} />Complete</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full w-full rounded-full bg-success" /></div><ul className="mt-5 divide-y">{liveRequirements.map((requirement) => <li key={requirement.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="flex items-center gap-2"><Check size={15} className="text-success" />{requirement.text}</span><span className="shrink-0 font-mono text-[11px] text-muted-ink">{requirement.priority}</span></li>)}</ul><button type="button" onClick={onOpenQuestions} className="mt-4 inline-flex min-h-11 items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Inspect mapped questions <ArrowRight size={15} /></button></Card></section>
   </div>;
 }
@@ -472,7 +624,7 @@ function QuestionsView({ category, editingId, draft, questions, allQuestions, sa
 type QuestionCardProps = { question: Question; index: number; total: number; editing: boolean; draft: { prompt: string; answer: string; category: Question["category"] }; saved: boolean; saving: boolean; onDraft: (draft: { prompt: string; answer: string; category: Question["category"] }) => void; onEdit: () => void; onCancel: () => void; onSave: () => void; onMove: (id: string, direction: -1 | 1) => void; onDelete: () => void; };
 
 function QuestionCard({ question, index, total, editing, draft, saved, saving, onDraft, onEdit, onCancel, onSave, onMove, onDelete }: QuestionCardProps) {
-  return <Card className="p-4 sm:p-5" data-question-id={question.id}><div className="flex items-start gap-3"><GripVertical size={18} className="mt-1 shrink-0 text-muted-ink" aria-hidden="true" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{categoryLabels[question.category]}</span><span className="rounded-full border px-2.5 py-1 text-xs font-medium">{question.requirementIds.includes("r1") || question.requirementIds.includes("r2") || question.requirementIds.includes("r3") ? "Must-have" : "Nice to have"}</span><Difficulty difficulty={question.difficulty} /></div><div className="flex items-center gap-1"><button type="button" disabled={saving || index === 0} onClick={() => onMove(question.id, -1)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink disabled:opacity-35" aria-label="Move question up"><ArrowUp size={16} /></button><button type="button" disabled={saving || index === total - 1} onClick={() => onMove(question.id, 1)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink disabled:opacity-35" aria-label="Move question down"><ArrowDown size={16} /></button>{!editing && <button type="button" disabled={saving} onClick={onEdit} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-ink hover:bg-surface-raised hover:text-ink disabled:opacity-35"><Pencil size={14} />Edit</button>} {!editing && <button type="button" disabled={saving} onClick={onDelete} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-35">Delete</button>}</div></div>{editing ? <QuestionEditor draft={draft} onDraft={onDraft} onCancel={onCancel} onSave={onSave} /> : <><h3 className="mt-4 text-[15px] font-medium leading-6">{question.prompt}</h3><div className="mt-4 border-l-2 border-violet/35 pl-3"><p className="text-xs font-medium text-muted-ink">Answer outline</p><p className="mt-1 text-sm leading-6 text-muted-ink">{question.answer}</p></div>{saved && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-success"><Check size={14} />Saved</p>}</>}</div></div></Card>;
+  return <Card className="p-4 sm:p-5" data-question-id={question.id}><div className="flex items-start gap-3"><GripVertical size={18} className="mt-1 shrink-0 text-muted-ink" aria-hidden="true" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-xs font-medium text-violet">{categoryLabels[question.category]}</span><Difficulty difficulty={question.difficulty} /></div><div className="flex items-center gap-1"><button type="button" disabled={saving || index === 0} onClick={() => onMove(question.id, -1)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink disabled:opacity-35" aria-label="Move question up"><ArrowUp size={16} /></button><button type="button" disabled={saving || index === total - 1} onClick={() => onMove(question.id, 1)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink disabled:opacity-35" aria-label="Move question down"><ArrowDown size={16} /></button>{!editing && <button type="button" disabled={saving} onClick={onEdit} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-ink hover:bg-surface-raised hover:text-ink disabled:opacity-35"><Pencil size={14} />Edit</button>} {!editing && <button type="button" disabled={saving} onClick={onDelete} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-35">Delete</button>}</div></div>{editing ? <QuestionEditor draft={draft} onDraft={onDraft} onCancel={onCancel} onSave={onSave} /> : <><h3 className="mt-4 text-[15px] font-medium leading-6">{question.prompt}</h3><div className="mt-4 border-l-2 border-violet/35 pl-3"><p className="text-xs font-medium text-muted-ink">Answer outline</p><p className="mt-1 text-sm leading-6 text-muted-ink">{question.answer}</p></div>{saved && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-success"><Check size={14} />Saved</p>}</>}</div></div></Card>;
 }
 
 function Difficulty({ difficulty }: { difficulty: 1 | 2 | 3 }) { return <span className="inline-flex items-center gap-1.5 text-xs text-muted-ink"><span className="flex gap-0.5" aria-hidden="true">{[1, 2, 3].map((level) => <i key={level} className={cn("h-1.5 w-1.5 rounded-full", level <= difficulty ? "bg-warning" : "bg-line")} />)}</span>Difficulty {difficulty}</span>; }
@@ -482,15 +634,45 @@ function QuestionEditor({ draft, onDraft, onCancel, onSave }: { draft: { prompt:
   return <div className="mt-4 space-y-3"><label className="block"><span className="text-xs font-medium text-muted-ink">Question</span><textarea value={draft.prompt} onChange={(event) => onDraft({ ...draft, prompt: event.target.value })} onKeyDown={onKeyDown} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Answer outline</span><textarea value={draft.answer} onChange={(event) => onDraft({ ...draft, answer: event.target.value })} onKeyDown={onKeyDown} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Category</span><select value={draft.category} onChange={(event) => onDraft({ ...draft, category: event.target.value as Question["category"] })} className="mt-1.5 min-h-11 w-full rounded-xl border bg-canvas px-3 text-sm outline-none focus:border-signal">{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="flex flex-wrap items-center gap-2"><Button size="sm" onClick={onSave}><Check size={15} />Save</Button><Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button><span className="text-xs text-muted-ink">Esc to cancel · ⌘/Ctrl + Enter to save</span></div></div>;
 }
 
-function FlashcardsView({ card, index, total, revealed, reviewed, sessionConfidence, complete, onReveal, onConfidence, onRestart, onRegenerate, regenerating }: { card?: Flashcard; index: number; total: number; revealed: boolean; reviewed: number; sessionConfidence: { low: number; medium: number; high: number }; complete: boolean; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void; onRegenerate: () => void; regenerating: boolean }) {
+function FlashcardsView({ card, index, total, revealed, reviewed, sessionConfidence, complete, prioritised, onReveal, onConfidence, onRestart, onRegenerate, regenerating }: { card?: Flashcard; index: number; total: number; revealed: boolean; reviewed: number; sessionConfidence: { low: number; medium: number; high: number }; complete: boolean; prioritised: boolean; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void; onRegenerate: () => void; regenerating: boolean }) {
+  if (!card) return <section className="mx-auto max-w-3xl py-10 text-center"><p className="eyebrow">Practice session</p><h2 className="mt-2 text-xl font-semibold tracking-tight">No flashcards are available yet.</h2><p className="mt-3 text-sm leading-6 text-muted-ink">Refresh this kit to generate a fresh set of study prompts.</p><Button className="mt-6" onClick={onRegenerate} disabled={regenerating}>{regenerating ? <><LoaderCircle className="animate-spin" size={16} />Refreshing flashcards…</> : <><Sparkles size={16} />Refresh flashcards</>}</Button></section>;
+  const completedCount = Math.min(reviewed, total);
+  const sessionScore = total === 0 ? 0 : Math.round((sessionConfidence.medium * 50 + sessionConfidence.high * 100) / total);
+  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2>{prioritised && <p className="mt-1 text-xs text-muted-ink">Weakest recall cards are first in this session.</p>}</div><div className="flex items-center gap-3"><span className="shrink-0 text-sm text-muted-ink">{completedCount} of {total} reviewed</span><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={regenerating}>{regenerating ? "Refreshing…" : "Refresh flashcards"}</Button></div></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${completedCount / Math.max(total, 1) * 100}%` }} /></div>{complete ? <Card className="flashcard-face mt-8 grid min-h-[28rem] place-items-center overflow-hidden p-6 text-center sm:p-10"><div className="relative max-w-md"><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-success/10 text-success ring-1 ring-success/20"><CheckCircle2 size={24} /></span><p className="mt-6 text-xs font-medium uppercase tracking-[0.16em] text-muted-ink">Session complete</p><h3 className="editorial-title mt-3 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">Your recall score: {sessionScore}%</h3><p className="mt-4 text-sm leading-6 text-muted-ink">Based on this pass: {sessionConfidence.high} confident, {sessionConfidence.medium} getting there, and {sessionConfidence.low} to revisit. Your latest rating for each card is saved to the dashboard.</p><Button className="mt-8" onClick={onRestart}><RotateCcw size={16} />Start it over</Button></div></Card> : <><FlashcardStage card={card} index={index} total={total} revealed={revealed} onReveal={onReveal} onConfidence={onConfidence} /><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></>}</section>;
+}
+
+function FlashcardStage({ card, index, total, revealed, onReveal, onConfidence }: { card: Flashcard; index: number; total: number; revealed: boolean; onReveal: () => void; onConfidence: (value: string) => void }) {
+  const reduceMotion = useReducedMotion();
+  const face = revealed ? "answer" : "prompt";
+  const cardKey = `${card.id}-${face}`;
+  const motionProps = reduceMotion
+    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
+    : {
+        initial: { opacity: 0, rotateY: revealed ? -88 : 88, x: revealed ? 0 : 22, scale: 0.985 },
+        animate: { opacity: 1, rotateY: 0, x: 0, scale: 1 },
+        exit: { opacity: 0, rotateY: revealed ? 88 : -88, x: revealed ? -18 : 18, scale: 0.985 }
+      };
+  return <div className="mt-8 [perspective:1400px]"><AnimatePresence mode="wait" initial={false}><motion.div key={cardKey} {...motionProps} transition={{ duration: reduceMotion ? 0.12 : 0.34, ease: [0.22, 1, 0.36, 1] }} style={{ transformStyle: "preserve-3d" }}><Card className={cn("flashcard-face relative grid min-h-[29rem] overflow-hidden p-6 sm:p-10", revealed && "border-violet/35")}><div className="flashcard-grid pointer-events-none absolute inset-0" aria-hidden="true" /><div className="flashcard-orb pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-violet/25 blur-3xl" aria-hidden="true" /><div className="flashcard-orb flashcard-orb-delayed pointer-events-none absolute -bottom-24 -left-16 h-48 w-48 rounded-full bg-signal/15 blur-3xl" aria-hidden="true" /><div className="relative flex items-center justify-between gap-3 self-start"><span className="inline-flex items-center gap-2 rounded-full border border-violet/25 bg-violet/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet"><Layers3 size={13} />{revealed ? "Answer side" : "Recall card"}</span><span className="font-mono text-xs text-muted-ink"><b className="text-ink">{String(index + 1).padStart(2, "0")}</b> / {String(total).padStart(2, "0")}</span></div>{revealed ? <div className="relative grid content-center"><div className="max-w-3xl"><p className="mb-4 text-[11px] font-medium uppercase tracking-[0.16em] text-violet">Suggested answer</p><p className="editorial-title text-[clamp(1.9rem,4.5vw,3.35rem)] leading-[1.02] text-ink">{card.back}</p></div><div className="mt-8 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button variant="secondary" className="hover:border-signal hover:bg-signal hover:text-white" onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Not yet = 0 · Getting there = 50 · Confident = 100</p></div> : <div className="relative grid content-center"><div className="max-w-3xl"><p className="mb-4 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-ink">Think it through first</p><h3 className="editorial-title text-[clamp(2.15rem,5.5vw,4rem)] leading-[0.98] text-ink">{card.front}</h3></div><div className="mt-10 flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm text-muted-ink">Say your answer out loud, then turn the card.</p><Button className="mt-5 shadow-[0_12px_26px_hsl(var(--signal)/0.25)]" onClick={onReveal}>Turn card <ArrowRight size={16} /></Button></div><span className="rounded-full border bg-surface/60 px-3 py-1.5 text-xs text-muted-ink backdrop-blur-sm">Space to reveal</span></div></div>}</Card></motion.div></AnimatePresence></div>;
+}
+
+function LegacyFlashcardsView({ card, index, total, revealed, reviewed, sessionConfidence, complete, prioritised, onReveal, onConfidence, onRestart, onRegenerate, regenerating }: { card?: Flashcard; index: number; total: number; revealed: boolean; reviewed: number; sessionConfidence: { low: number; medium: number; high: number }; complete: boolean; prioritised: boolean; onReveal: () => void; onConfidence: (value: string) => void; onRestart: () => void; onRegenerate: () => void; regenerating: boolean }) {
   if (!card) return <section className="mx-auto max-w-3xl py-10 text-center"><p className="eyebrow">Practice session</p><h2 className="mt-2 text-xl font-semibold tracking-tight">No flashcards are available yet.</h2><p className="mt-3 text-sm leading-6 text-muted-ink">Regenerate this kit after adding a fuller job description to create study prompts.</p></section>;
   const completedCount = Math.min(reviewed, total);
   const sessionScore = total === 0 ? 0 : Math.round((sessionConfidence.medium * 50 + sessionConfidence.high * 100) / total);
-  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2></div><div className="flex items-center gap-3"><span className="shrink-0 text-sm text-muted-ink">{completedCount} of {total} reviewed</span><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={regenerating}>{regenerating ? "Refreshing…" : "Refresh flashcards"}</Button></div></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${completedCount / Math.max(total, 1) * 100}%` }} /></div>{complete ? <Card className="flashcard-face mt-8 grid min-h-[28rem] place-items-center overflow-hidden p-6 text-center sm:p-10"><div className="relative max-w-md"><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-success/10 text-success ring-1 ring-success/20"><CheckCircle2 size={24} /></span><p className="mt-6 text-xs font-medium uppercase tracking-[0.16em] text-muted-ink">Session complete</p><h3 className="editorial-title mt-3 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">Your recall score: {sessionScore}%</h3><p className="mt-4 text-sm leading-6 text-muted-ink">Based on this pass: {sessionConfidence.high} confident, {sessionConfidence.medium} getting there, and {sessionConfidence.low} to revisit. Your latest rating for each card is saved to the dashboard.</p><Button className="mt-8" onClick={onRestart}><RotateCcw size={16} />Start it over</Button></div></Card> : <><Card className="flashcard-face relative mt-8 min-h-[29rem] overflow-hidden p-6 sm:p-10"><div className="flashcard-grid pointer-events-none absolute inset-0" aria-hidden="true" /><div className="flashcard-orb pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-violet/25 blur-3xl" aria-hidden="true" /><div className="flashcard-orb flashcard-orb-delayed pointer-events-none absolute -bottom-24 -left-16 h-48 w-48 rounded-full bg-signal/15 blur-3xl" aria-hidden="true" /><div className="relative flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 rounded-full border border-violet/25 bg-violet/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet"><Layers3 size={13} />Recall card</span><span className="font-mono text-xs text-muted-ink"><b className="text-ink">{String(index + 1).padStart(2, "0")}</b> / {String(total).padStart(2, "0")}</span></div><div className="relative flex min-h-[17rem] items-center"><div className="max-w-3xl"><p className="mb-4 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-ink">Think it through first</p><h3 className="editorial-title text-[clamp(2.15rem,5.5vw,4rem)] leading-[0.98] text-ink">{card.front}</h3></div></div>{revealed ? <div className="relative rounded-2xl border border-violet/20 bg-surface/75 p-5 shadow-lg backdrop-blur-sm sm:p-6"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-violet"><Sparkles size={14} />Suggested answer</div><p className="mt-3 text-[15px] leading-7 text-ink">{card.back}</p><div className="mt-6 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button variant="secondary" className="hover:border-signal hover:bg-signal hover:text-white" onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Not yet = 0 · Getting there = 50 · Confident = 100</p></div> : <div className="relative flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm text-muted-ink">Say your answer out loud, then check the cue.</p><Button className="mt-5 shadow-[0_12px_26px_hsl(var(--signal)/0.25)]" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button></div><span className="rounded-full border bg-surface/60 px-3 py-1.5 text-xs text-muted-ink backdrop-blur-sm">Space to reveal</span></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></>}</section>;
+  return <section className="mx-auto max-w-3xl"><div className="flex items-end justify-between gap-4"><div><p className="eyebrow">Practice session</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Make the outline yours.</h2>{prioritised && <p className="mt-1 text-xs text-muted-ink">Weakest recall cards are first in this session.</p>}</div><div className="flex items-center gap-3"><span className="shrink-0 text-sm text-muted-ink">{completedCount} of {total} reviewed</span><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={regenerating}>{regenerating ? "Refreshing…" : "Refresh flashcards"}</Button></div></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-violet transition-[width] duration-200" style={{ width: `${completedCount / Math.max(total, 1) * 100}%` }} /></div>{complete ? <Card className="flashcard-face mt-8 grid min-h-[28rem] place-items-center overflow-hidden p-6 text-center sm:p-10"><div className="relative max-w-md"><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-success/10 text-success ring-1 ring-success/20"><CheckCircle2 size={24} /></span><p className="mt-6 text-xs font-medium uppercase tracking-[0.16em] text-muted-ink">Session complete</p><h3 className="editorial-title mt-3 text-[clamp(2rem,5vw,3rem)] leading-[1.04]">Your recall score: {sessionScore}%</h3><p className="mt-4 text-sm leading-6 text-muted-ink">Based on this pass: {sessionConfidence.high} confident, {sessionConfidence.medium} getting there, and {sessionConfidence.low} to revisit. Your latest rating for each card is saved to the dashboard.</p><Button className="mt-8" onClick={onRestart}><RotateCcw size={16} />Start it over</Button></div></Card> : <><Card className="flashcard-face relative mt-8 min-h-[29rem] overflow-hidden p-6 sm:p-10"><div className="flashcard-grid pointer-events-none absolute inset-0" aria-hidden="true" /><div className="flashcard-orb pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-violet/25 blur-3xl" aria-hidden="true" /><div className="flashcard-orb flashcard-orb-delayed pointer-events-none absolute -bottom-24 -left-16 h-48 w-48 rounded-full bg-signal/15 blur-3xl" aria-hidden="true" /><div className="relative flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 rounded-full border border-violet/25 bg-violet/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet"><Layers3 size={13} />Recall card</span><span className="font-mono text-xs text-muted-ink"><b className="text-ink">{String(index + 1).padStart(2, "0")}</b> / {String(total).padStart(2, "0")}</span></div><div className="relative flex min-h-[17rem] items-center"><div className="max-w-3xl"><p className="mb-4 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-ink">Think it through first</p><h3 className="editorial-title text-[clamp(2.15rem,5.5vw,4rem)] leading-[0.98] text-ink">{card.front}</h3></div></div>{revealed ? <div className="relative rounded-2xl border border-violet/20 bg-surface/75 p-5 shadow-lg backdrop-blur-sm sm:p-6"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-violet"><Sparkles size={14} />Suggested answer</div><p className="mt-3 text-[15px] leading-7 text-ink">{card.back}</p><div className="mt-6 grid gap-2 sm:grid-cols-3"><Button variant="secondary" onClick={() => onConfidence("1")}>1 · Not yet</Button><Button variant="secondary" onClick={() => onConfidence("2")}>2 · Getting there</Button><Button variant="secondary" className="hover:border-signal hover:bg-signal hover:text-white" onClick={() => onConfidence("3")}>3 · Confident</Button></div><p className="mt-3 text-center text-xs text-muted-ink">Not yet = 0 · Getting there = 50 · Confident = 100</p></div> : <div className="relative flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm text-muted-ink">Say your answer out loud, then check the cue.</p><Button className="mt-5 shadow-[0_12px_26px_hsl(var(--signal)/0.25)]" onClick={onReveal}>Reveal answer <ArrowRight size={16} /></Button></div><span className="rounded-full border bg-surface/60 px-3 py-1.5 text-xs text-muted-ink backdrop-blur-sm">Space to reveal</span></div>}</Card><button type="button" onClick={onRestart} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-muted-ink hover:text-ink"><RotateCcw size={16} />Restart this session</button></>}</section>;
 }
 
-function ScheduleView({ expandedDay, onToggle, questions, plan }: { expandedDay: number; onToggle: (day: number) => void; questions: Question[]; plan: StudyDay[] }) {
-  return <section><div><p className="eyebrow">Study plan</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{plan.length} days, with a clear next move.</h2><p className="mt-2 text-sm text-muted-ink">Each session starts with the must-have signals before the optional depth.</p></div><ol className="mt-7 space-y-3">{plan.map((day) => { const open = expandedDay === day.day; const sessionQuestions = day.questionIds.map((id) => questions.find((question) => question.id === id)).filter((question): question is Question => Boolean(question)); return <li key={day.day} className="relative pl-12"><span className={cn("absolute left-0 top-5 grid h-8 w-8 place-items-center rounded-full text-xs font-semibold", day.day === 1 ? "bg-signal text-white" : "bg-surface text-muted-ink ring-1 ring-line")}>D{day.day}</span>{day.day < plan.length && <span className="absolute left-4 top-12 h-[calc(100%+0.75rem)] border-l border-dashed" aria-hidden="true" />}<Card className={cn("overflow-hidden", day.day === 1 && "border-signal/40")}><button type="button" onClick={() => onToggle(open ? 0 : day.day)} className="flex min-h-16 w-full items-center justify-between gap-4 px-4 text-left sm:px-5" aria-expanded={open}><span><span className="block text-[15px] font-medium">{day.focus}</span><span className="mt-1 block text-xs text-muted-ink">{sessionQuestions.length} questions · {day.minutes} minutes</span></span>{open ? <ChevronUp size={18} className="text-muted-ink" /> : <ChevronDown size={18} className="text-muted-ink" />}</button>{open && <div className="border-t bg-canvas px-4 py-4 sm:px-5"><p className="text-xs font-medium text-muted-ink">Practice prompts</p><ul className="mt-3 space-y-2">{sessionQuestions.map((question) => <li key={question.id} className="flex gap-2 text-sm leading-6"><CircleHelp size={15} className="mt-1 shrink-0 text-violet" />{question.prompt}</li>)}</ul></div>}</Card></li>; })}</ol></section>;
+function FlashcardLibrary({ cards, editingId, draft, adding, addDraft, saving, onEdit, onDraft, onCancelEdit, onSave, onAdd, onAddDraft, onCancelAdd, onConfirmAdd, onDelete }: { cards: Flashcard[]; editingId: string | null; draft: { front: string; back: string }; adding: boolean; addDraft: { front: string; back: string }; saving: string | null; onEdit: (card: Flashcard) => void; onDraft: (draft: { front: string; back: string }) => void; onCancelEdit: () => void; onSave: (id: string) => void; onAdd: () => void; onAddDraft: (draft: { front: string; back: string }) => void; onCancelAdd: () => void; onConfirmAdd: () => void; onDelete: (id: string) => void }) {
+  return <section className="mx-auto mt-12 max-w-3xl border-t pt-8"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Card library</p><h2 className="mt-1 text-xl font-semibold tracking-tight">Tune every recall cue.</h2><p className="mt-2 text-sm text-muted-ink">Edits persist to this kit. Manual cards map to the primary role requirement.</p></div><Button size="sm" variant="secondary" onClick={onAdd} disabled={Boolean(saving)}><Pencil size={15} />Add flashcard</Button></div>{adding && <Card className="mt-5 border-violet/30 bg-violet/5 p-4 sm:p-5"><FlashcardEditor draft={addDraft} onDraft={onAddDraft} onCancel={onCancelAdd} onSave={onConfirmAdd} label="Add flashcard" /></Card>}<div className="mt-5 space-y-3">{cards.map((card) => { const editing = editingId === card.id; return <Card key={card.id} className="p-4 sm:p-5"><div className="flex items-start justify-between gap-3"><span className="rounded-full bg-violet/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-violet">Recall cue</span><div className="flex items-center gap-1">{!editing && <button type="button" onClick={() => onEdit(card)} disabled={Boolean(saving)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-ink hover:bg-surface-raised hover:text-ink"><Pencil size={14} />Edit</button>}<button type="button" onClick={() => onDelete(card.id)} disabled={Boolean(saving)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-danger hover:bg-danger/5">Delete</button></div></div>{editing ? <FlashcardEditor draft={draft} onDraft={onDraft} onCancel={onCancelEdit} onSave={() => onSave(card.id)} label="Save flashcard" /> : <div className="mt-4"><p className="text-[15px] font-medium leading-6">{card.front}</p><p className="mt-3 border-l-2 border-violet/35 pl-3 text-sm leading-6 text-muted-ink">{card.back}</p></div>}</Card>; })}</div></section>;
+}
+
+function FlashcardEditor({ draft, onDraft, onCancel, onSave, label }: { draft: { front: string; back: string }; onDraft: (draft: { front: string; back: string }) => void; onCancel: () => void; onSave: () => void; label: string }) {
+  return <div className="mt-4 space-y-3"><label className="block"><span className="text-xs font-medium text-muted-ink">Front · recall cue</span><textarea autoFocus value={draft.front} onChange={(event) => onDraft({ ...draft, front: event.target.value })} className="mt-1.5 min-h-20 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><label className="block"><span className="text-xs font-medium text-muted-ink">Back · answer outline</span><textarea value={draft.back} onChange={(event) => onDraft({ ...draft, back: event.target.value })} className="mt-1.5 min-h-24 w-full rounded-xl border bg-canvas px-3 py-2.5 text-sm leading-6 outline-none focus:border-signal" /></label><div className="flex flex-wrap gap-2"><Button size="sm" onClick={onSave}><Check size={15} />{label}</Button><Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button></div></div>;
+}
+
+function ScheduleView({ expandedDay, onToggle, questions, plan, onRegenerate, regenerating, generationRun }: { expandedDay: number; onToggle: (day: number) => void; questions: Question[]; plan: StudyDay[]; onRegenerate: () => void; regenerating: boolean; generationRun: GenerationRun | null }) {
+  const activeStep = generationRun?.steps.find((step) => step.status === "running");
+  return <section><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Study plan</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{plan.length} days, with a clear next move.</h2><p className="mt-2 text-sm text-muted-ink">Each session starts with the must-have signals before the optional depth.</p></div><Button size="sm" variant="secondary" onClick={onRegenerate} disabled={regenerating}>{regenerating ? <LoaderCircle className="animate-spin" size={15} /> : <Sparkles size={15} />}{regenerating ? "Refreshing…" : "Regenerate schedule"}</Button></div>{regenerating && <Card className="mt-5 border-violet/30 bg-violet/5 p-4"><div className="flex items-center gap-3" role="status"><LoaderCircle size={18} className="animate-spin text-violet" /><p className="text-sm text-muted-ink">{activeStep?.message ?? activeStep ? `Refreshing · ${activeStep.name}` : "Rebuilding your schedule from the latest questions…"}</p></div></Card>}<ol className="mt-7 space-y-3">{plan.map((day) => { const open = expandedDay === day.day; const sessionQuestions = day.questionIds.map((id) => questions.find((question) => question.id === id)).filter((question): question is Question => Boolean(question)); return <li key={day.day} className="relative pl-12"><span className={cn("absolute left-0 top-5 grid h-8 w-8 place-items-center rounded-full text-xs font-semibold", day.day === 1 ? "bg-signal text-white" : "bg-surface text-muted-ink ring-1 ring-line")}>D{day.day}</span>{day.day < plan.length && <span className="absolute left-4 top-12 h-[calc(100%+0.75rem)] border-l border-dashed" aria-hidden="true" />}<Card className={cn("overflow-hidden", day.day === 1 && "border-signal/40")}><button type="button" onClick={() => onToggle(open ? 0 : day.day)} className="flex min-h-16 w-full items-center justify-between gap-4 px-4 text-left sm:px-5" aria-expanded={open}><span><span className="block text-[15px] font-medium">{day.focus}</span><span className="mt-1 block text-xs text-muted-ink">{sessionQuestions.length} questions · {day.minutes} minutes</span></span>{open ? <ChevronUp size={18} className="text-muted-ink" /> : <ChevronDown size={18} className="text-muted-ink" />}</button>{open && <div className="border-t bg-canvas px-4 py-4 sm:px-5"><p className="text-xs font-medium text-muted-ink">Practice prompts</p><ul className="mt-3 space-y-2">{sessionQuestions.map((question) => <li key={question.id} className="flex gap-2 text-sm leading-6"><CircleHelp size={15} className="mt-1 shrink-0 text-violet" />{question.prompt}</li>)}</ul></div>}</Card></li>; })}</ol></section>;
 }
 
 function RegenerationDialog({ category, editedCount, replaceCount, onCancel, onConfirm }: { category: Category; editedCount: number; replaceCount: number; onCancel: () => void; onConfirm: () => void }) {
@@ -503,4 +685,8 @@ function AddQuestionDialog({ draft, onDraft, onCancel, onConfirm }: { draft: { p
 
 function DeleteQuestionDialog({ question, onCancel, onConfirm }: { question?: Question; onCancel: () => void; onConfirm: () => void }) {
   return <div className="fixed inset-0 z-40 grid place-items-end bg-ink/30 p-4 sm:place-items-center" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="delete-question-title" className="w-full max-w-md rounded-sheet border bg-surface p-5 shadow-ambient sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Remove question</p><h2 id="delete-question-title" className="mt-1 text-lg font-semibold">Delete this question?</h2></div><button type="button" onClick={onCancel} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Close delete confirmation"><X size={17} /></button></div><p className="mt-4 text-sm leading-6 text-muted-ink">{question ? `“${question.prompt}” will be removed from this kit and its study plan.` : "This question will be removed from this kit and its study plan."}</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onCancel}>Keep question</Button><Button className="bg-danger hover:bg-danger/90" onClick={onConfirm}>Delete question</Button></div></section></div>;
+}
+
+function DeleteFlashcardDialog({ flashcard, onCancel, onConfirm }: { flashcard?: Flashcard; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-40 grid place-items-end bg-ink/30 p-4 sm:place-items-center" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="delete-flashcard-title" className="w-full max-w-md rounded-sheet border bg-surface p-5 shadow-ambient sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Remove flashcard</p><h2 id="delete-flashcard-title" className="mt-1 text-lg font-semibold">Delete this flashcard?</h2></div><button type="button" onClick={onCancel} className="grid h-9 w-9 place-items-center rounded-lg text-muted-ink hover:bg-surface-raised hover:text-ink" aria-label="Close delete confirmation"><X size={17} /></button></div><p className="mt-4 text-sm leading-6 text-muted-ink">{flashcard ? `“${flashcard.front}” will be removed from this kit and its saved practice history.` : "This flashcard and its saved practice history will be removed."}</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onCancel}>Keep flashcard</Button><Button className="bg-danger hover:bg-danger/90" onClick={onConfirm}>Delete flashcard</Button></div></section></div>;
 }

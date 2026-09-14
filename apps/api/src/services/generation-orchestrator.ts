@@ -10,7 +10,7 @@ import { persistedKitSchema } from "../lib/kit-validation.js";
 export type GenerationInput = { jd: string; companyUrl: string; days: number };
 
 const stepNames = ["input", "research", "role", "questions", "flashcards", "coverage", "schedule", "validation"] as const satisfies readonly PipelineStep[];
-const retryableCodes = new Set(["COMPANY_UNREACHABLE", "HTTP_ERROR", "GENERATION_FAILED", "GENERATION_INVALID", "GENERATION_UNAVAILABLE", "RESPONSE_TOO_LARGE"]);
+const retryableCodes = new Set(["COMPANY_UNREACHABLE", "HTTP_ERROR", "GENERATION_FAILED", "GENERATION_RATE_LIMITED", "GENERATION_INVALID", "GENERATION_UNAVAILABLE", "RESPONSE_TOO_LARGE"]);
 
 /**
  * Persists a durable progress record around the shared pipeline. The pipeline is
@@ -36,7 +36,7 @@ export class GenerationOrchestrator {
   async regenerate(
     ownerId: string,
     kitId: string,
-    request: { revision: number; section: "questions" | "flashcards"; category?: "technical" | "behavioural" | "system-design" | "company-fit" }
+    request: { revision: number; section: "questions" | "flashcards" | "company-brief" | "schedule"; category?: "technical" | "behavioural" | "system-design" | "company-fit" }
   ): Promise<{ kit: KitRecord & { _id: { toString(): string } }; generationRun: { id: string; kitId: string } }> {
     const kit = await Kit.findOne({ _id: kitId, ownerId }).select("generationInput status revision kit").lean();
     if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
@@ -244,7 +244,7 @@ type ScopedRegeneration = NonNullable<GenerationRunRecord["regeneration"]>;
  * truthy; only the discriminating `section` field makes it a real regeneration.
  */
 export function scopedRegeneration(value: GenerationRunRecord["regeneration"] | Record<string, unknown> | undefined): ScopedRegeneration | undefined {
-  if (value?.section === "questions" || value?.section === "flashcards") {
+  if (value?.section === "questions" || value?.section === "flashcards" || value?.section === "company-brief" || value?.section === "schedule") {
     return value as ScopedRegeneration;
   }
   return undefined;

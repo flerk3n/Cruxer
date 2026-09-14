@@ -71,6 +71,7 @@
 - Revamped the authenticated workspace without changing the landing page: added a centred floating dock, workspace-only midnight-indigo colour system and DM Sans typography, bento dashboard, elevated creation/practice/settings panels, top-centre accessible toast viewport, Motion-based gestures/layout entrances, and GSAP’s scoped one-time dashboard scroll reveals. Added `motion` as the React animation dependency; all workspace and API/shared type checks plus the web production build pass.
 - Replaced the custom dock with the generated Magic UI dock after initializing the local shadcn registry. The dock now sits in a full-width flex-centred rail and uses Cruxer’s own palette and Lucide icon set; shadcn’s unsolicited global/button/theme rewrites and dependencies were removed. All 40 tests, workspace type checks, and the production build pass.
 - Stabilised the Magic UI dock interaction: it now uses viewport pointer coordinates and non-shrinking flex icons for predictable magnification, keeps visible gaps between expanding actions, and supplies animated caption tooltips on hover and keyboard focus. Web type checks and the production build pass.
+- Balanced the dock hierarchy: all actions, including New kit, now begin neutral; accent circles appear consistently only on hover/focus while the current route remains quietly identifiable. Increased the resting and magnified dock target sizes. Web type checks and the production build pass.
 
 ## Active commitments
 

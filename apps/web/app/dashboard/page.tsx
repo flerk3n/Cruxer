@@ -1,12 +1,3 @@
-import Link from "next/link";
-import { ArrowRight, CalendarDays, Clock3, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { StatusPill } from "@/components/ui/status-pill";
+import { DashboardOverview } from "@/components/dashboard-overview";
 
-const kits = [
-  { role: "Senior Frontend Engineer", company: "Atlas", days: 5, updated: "Updated just now", status: "ready" as const },
-  { role: "Product Engineer", company: "Northstar", days: 9, updated: "Research paused", status: "partial" as const }
-];
-
-export default function DashboardPage() { return <><div className="flex flex-wrap items-end justify-between gap-5"><div><p className="eyebrow">Your preparation workspace</p><h1 className="mt-2 text-[clamp(1.75rem,4vw,2rem)] font-semibold tracking-tight">Good morning, Ari.</h1><p className="mt-2 text-sm text-muted-ink">Focus on the role that matters next.</p></div><Link href="/dashboard/new"><Button><Plus size={16} />Create a kit</Button></Link></div><section className="mt-10"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold tracking-tight">In progress</h2><span className="text-xs text-muted-ink">{kits.length} kits</span></div><div className="grid gap-3">{kits.map((kit) => <Card key={kit.company} className="group p-5 transition duration-150 hover:-translate-y-0.5 hover:bg-surface-raised"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[15px] font-medium">{kit.role}</p><p className="mt-1 text-sm text-muted-ink">{kit.company}</p></div><StatusPill status={kit.status} /></div><div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-ink"><span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />{kit.days} days remaining</span><span className="inline-flex items-center gap-1.5"><Clock3 size={14} />{kit.updated}</span><Link href={kit.company === "Atlas" ? "/dashboard/kits/atlas" : "/dashboard/kits/northstar"} className="ml-auto inline-flex items-center gap-1.5 font-medium text-ink group-hover:text-signal">Open kit <ArrowRight size={14} /></Link></div></Card>)}</div></section><section className="mt-12"><h2 className="text-lg font-semibold tracking-tight">A better starting point</h2><Card className="mt-4 overflow-hidden p-6 sm:p-8"><p className="editorial-title max-w-xl text-3xl leading-none">Give Cruxer a role, a company, and the time you have.</p><p className="mt-4 max-w-lg text-sm leading-6 text-muted-ink">It will make its research and coverage visible so you know exactly what you are preparing for.</p><Link href="/dashboard/new" className="mt-6 inline-flex items-center gap-2 text-[13px] font-medium text-signal hover:text-signal-strong">Start a new kit <ArrowRight size={15} /></Link></Card></section></>; }
+export default function DashboardPage() { return <DashboardOverview />; }

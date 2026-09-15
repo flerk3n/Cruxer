@@ -93,6 +93,8 @@ body {
     box-shadow: inset 0 1px hsl(230 80% 95% / .08), 0 24px 60px hsl(233 50% 4% / .18);
   }
   .marketing-feature-card-muted { background: radial-gradient(circle at 100% 100%, hsl(153 72% 48% / .12), transparent 15rem), hsl(231 38% 11% / .76); }
+  .marketing-voice-preview { background: linear-gradient(145deg, hsl(232 50% 15% / .92), hsl(239 49% 9% / .96)); box-shadow: inset 0 1px hsl(230 80% 95% / .1), 0 28px 70px hsl(233 50% 3% / .32); }
+  .marketing-voice-bar { transform-origin: center; }
   .marketing-closing { background: radial-gradient(circle at 50% 0%, hsl(237 77% 36% / .4), transparent 27rem), hsl(231 43% 10%); }
   @media (max-width: 768px) {
     .marketing-nav .pill-nav-container { width: auto; }

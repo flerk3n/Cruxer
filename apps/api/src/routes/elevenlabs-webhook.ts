@@ -21,11 +21,19 @@ const webhookSchema = z.object({
 export function createElevenLabsWebhookRouter(config: AppConfig): Router {
   const router = Router();
   router.post("/", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
-    if (!config.ELEVENLABS_WEBHOOK_SECRET || !verifySignature(req.body, req.header("elevenlabs-signature"), config.ELEVENLABS_WEBHOOK_SECRET)) {
+    if (!config.ELEVENLABS_WEBHOOK_SECRET) {
+      console.warn(JSON.stringify({ event: "elevenlabs_webhook_rejected", reason: "missing_webhook_secret" }));
+      return res.status(503).json({ error: "Webhook verification is not configured." });
+    }
+    if (!verifySignature(req.body, req.header("elevenlabs-signature"), config.ELEVENLABS_WEBHOOK_SECRET)) {
+      console.warn(JSON.stringify({ event: "elevenlabs_webhook_rejected", reason: "invalid_signature" }));
       return res.status(401).json({ error: "Invalid webhook signature." });
     }
     const parsed = webhookSchema.safeParse(parseBody(req.body));
-    if (!parsed.success) return res.status(400).json({ error: "Invalid webhook payload." });
+    if (!parsed.success) {
+      console.warn(JSON.stringify({ event: "elevenlabs_webhook_rejected", reason: "invalid_payload" }));
+      return res.status(400).json({ error: "Invalid webhook payload." });
+    }
 
     const { conversation_id: providerConversationId, transcript } = parsed.data.data;
     const session = await MockInterviewSession.findOneAndUpdate(
@@ -42,6 +50,7 @@ export function createElevenLabsWebhookRouter(config: AppConfig): Router {
     );
 
     // Always acknowledge valid, unmatched deliveries so unrelated workspace calls do not retry.
+    console.info(JSON.stringify({ event: "elevenlabs_webhook_received", status: session ? "accepted" : "ignored", providerConversationId }));
     res.status(200).json({ status: session ? "accepted" : "ignored" });
     if (session) void evaluateMockInterview(session._id.toString());
   });

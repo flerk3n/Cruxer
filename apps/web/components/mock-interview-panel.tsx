@@ -66,7 +66,6 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
       conversation.startSession({
         signedUrl: started.signedUrl,
         dynamicVariables: started.dynamicVariables,
-        overrides: { agent: { firstMessage: started.firstMessage } },
         userId: started.userId,
         onConnect: ({ conversationId }) => {
           const active = sessionRef.current;

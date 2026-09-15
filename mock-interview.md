@@ -59,4 +59,4 @@ Start with Phases 1–2 as a complete secure vertical slice. The live voice UI w
 
 ## ElevenLabs Agent configuration
 
-Create one private Agent and enable signed-URL authentication. Its system prompt must include `{{interview_context}}` and instruct it to follow that context exactly. Cruxer retrieves the final transcript server-to-server using the configured API key, so no workspace webhook, tunnel, or webhook secret is required.
+Create one private Agent and enable signed-URL authentication. Its system prompt must include `{{interview_context}}` and instruct it to follow that context exactly. Set its **First message** to `Hello, I’m your interviewer for the {{role}} role at {{company}}. I’ll ask a few focused questions based on this position. Let’s begin.` Cruxer supplies the `role` and `company` dynamic variables at conversation start. Cruxer retrieves the final transcript server-to-server using the configured API key, so no workspace webhook, tunnel, or webhook secret is required.

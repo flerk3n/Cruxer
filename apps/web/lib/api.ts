@@ -91,6 +91,30 @@ export type KitDocument = {
   createdAt: string;
   updatedAt: string;
 };
+export type MockInterviewStatus = "created" | "active" | "ending" | "completed" | "evaluating" | "ready" | "failed";
+export type MockInterviewTranscriptTurn = { speaker: "agent" | "user"; text: string; at?: string };
+export type MockInterviewReport = {
+  overallScore: number;
+  dimensions: { relevance: number; structure: number; evidence: number; clarity: number };
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  nextSteps: string[];
+};
+export type MockInterviewSession = {
+  id: string;
+  kitId: string;
+  selectedQuestionIds: string[];
+  status: MockInterviewStatus;
+  providerConversationId?: string;
+  transcript: MockInterviewTranscriptTurn[];
+  report?: MockInterviewReport;
+  startedAt?: string;
+  endedAt?: string;
+  failure?: { code: string; message: string };
+  createdAt: string;
+  updatedAt: string;
+};
 /** Server-backed practice summary for one flashcard. Historical events are not fabricated. */
 export type PracticeProgress = {
   flashcardId: string;
@@ -205,6 +229,10 @@ export const api = {
   /** Creates the lightweight draft that the generation coordinator will populate. */
   createKit: (input: CreateKitInput) => request<{ kit: { id: string } }>("/kits", json(input)),
   getKit: (kitId: string) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}`),
+  getMockInterviews: (kitId: string) => request<{ sessions: MockInterviewSession[] }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`),
+  startMockInterview: (kitId: string, questionCount = 5) => request<{ session: MockInterviewSession; signedUrl: string; dynamicVariables: Record<string, string>; userId: string }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`, json({ questionCount })),
+  markMockInterviewConnected: (kitId: string, sessionId: string, providerConversationId: string) => request<{ session: MockInterviewSession }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews/${encodeURIComponent(sessionId)}/connected`, json({ providerConversationId })),
+  endMockInterview: (kitId: string, sessionId: string) => request<{ session: MockInterviewSession }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews/${encodeURIComponent(sessionId)}/end`, { method: "POST" }),
   updateCompanyBrief: (kitId: string, revision: number, changes: Partial<Pick<PersistedKit["company_brief"], "summary" | "what_they_do">>) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/company-brief`, patch({ revision, ...changes })),
   addQuestion: (kitId: string, revision: number, question: KitQuestion) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/questions`, json({ revision, question })),
   updateQuestion: (kitId: string, questionId: string, revision: number, changes: Partial<Omit<KitQuestion, "id">> & { pinned?: boolean }) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/questions/${encodeURIComponent(questionId)}`, patch({ revision, ...changes })),

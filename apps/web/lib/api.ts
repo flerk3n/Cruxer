@@ -230,7 +230,7 @@ export const api = {
   createKit: (input: CreateKitInput) => request<{ kit: { id: string } }>("/kits", json(input)),
   getKit: (kitId: string) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}`),
   getMockInterviews: (kitId: string) => request<{ sessions: MockInterviewSession[] }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`),
-  startMockInterview: (kitId: string, questionCount = 5) => request<{ session: MockInterviewSession; signedUrl: string; dynamicVariables: Record<string, string>; userId: string }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`, json({ questionCount })),
+  startMockInterview: (kitId: string, questionCount = 5) => request<{ session: MockInterviewSession; signedUrl: string; dynamicVariables: Record<string, string>; firstMessage: string; userId: string }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`, json({ questionCount })),
   markMockInterviewConnected: (kitId: string, sessionId: string, providerConversationId: string) => request<{ session: MockInterviewSession }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews/${encodeURIComponent(sessionId)}/connected`, json({ providerConversationId })),
   endMockInterview: (kitId: string, sessionId: string) => request<{ session: MockInterviewSession }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews/${encodeURIComponent(sessionId)}/end`, { method: "POST" }),
   updateCompanyBrief: (kitId: string, revision: number, changes: Partial<Pick<PersistedKit["company_brief"], "summary" | "what_they_do">>) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/company-brief`, patch({ revision, ...changes })),

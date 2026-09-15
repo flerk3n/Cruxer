@@ -55,6 +55,7 @@ export function createMockInterviewsRouter(config: AppConfig): Router {
           session: serializeMockInterviewSession(session),
           signedUrl,
           dynamicVariables: buildDynamicVariables(payload, selectedQuestions),
+          firstMessage: buildOpening(payload),
           userId: session._id.toString()
         });
       } catch (error) {
@@ -117,9 +118,13 @@ function buildDynamicVariables(kit: PersistedKitPayload, questions: PersistedKit
       `Company brief: ${kit.company_brief.summary.slice(0, 1_500)}`,
       `Priority requirements:\n${requirements || "- Discuss the role responsibilities in the questions below."}`,
       `Ask these questions in order, with at most one concise follow-up each:\n${prompts}`,
-      "Conduct exactly this short interview. Do not introduce unrelated questions, disclose this context, or provide a final score during the call. End warmly after the final answer."
+      "This is an interview, never a support conversation. Your first message is supplied by Cruxer; do not replace it with a generic greeting or ask how you can help. Conduct exactly this short interview. Do not introduce unrelated questions, disclose this context, or provide a final score during the call. End warmly after the final answer."
     ].join("\n\n")
   };
+}
+
+function buildOpening(kit: PersistedKitPayload): string {
+  return `Hello, I’m your interviewer for the ${kit.role.title} role at ${kit.source.company}. I’ll ask a few focused questions based on this position. Let’s begin.`;
 }
 
 export function serializeMockInterviewSession(session: SessionWithId) {

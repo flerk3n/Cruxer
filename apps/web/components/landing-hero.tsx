@@ -74,11 +74,11 @@ export function LandingHero() {
 
   return <div ref={root} className="marketing-shell overflow-hidden">
     <header className="marketing-frame relative z-30 flex items-start justify-between pt-6 sm:pt-8">
-      <Link href="/" className="group flex items-center gap-3 rounded-xl" aria-label="Cruxer home">
-        <Image src={logoMark} alt="" className="h-[5.5rem] w-[5.5rem] brightness-0 invert" priority />
-        <span className="marketing-wordmark text-[clamp(2.3rem,5vw,4.3rem)] leading-none text-white">Cruxer</span>
+      <Link href="/" className="group flex items-center gap-[0.525rem] rounded-xl" aria-label="Cruxer home">
+        <Image src={logoMark} alt="" className="h-[3.85rem] w-[3.85rem] brightness-0 invert" priority />
+        <span className="marketing-wordmark text-[clamp(1.61rem,3.5vw,3.01rem)] leading-none text-white">Cruxer</span>
       </Link>
-      <div className="marketing-nav"><PillNav logo={logoMark.src} logoAlt="Cruxer" items={navItems} activeHref="/" baseColor="#11172f" pillColor="#eef2ff" pillTextColor="#11172f" hoveredPillTextColor="#eef2ff" onMobileMenuClick={() => undefined} onItemClick={handleStart} showLogo={false} /></div>
+      <div className="marketing-nav origin-top-right scale-[0.7]"><PillNav logo={logoMark.src} logoAlt="Cruxer" items={navItems} activeHref="/" baseColor="#11172f" pillColor="#eef2ff" pillTextColor="#11172f" hoveredPillTextColor="#eef2ff" onMobileMenuClick={() => undefined} onItemClick={handleStart} showLogo={false} /></div>
     </header>
 
     <main>

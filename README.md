@@ -1,8 +1,8 @@
 # Cruxer
 
-Cruxer turns a pasted job description, company URL, and number of preparation days into an editable interview-preparation kit. It extracts only source-grounded role requirements, researches permitted company and public interview-process sources, builds an Appendix A-compatible kit through deliberate stages, closes question-coverage gaps in code, and gives each authenticated user a persistent practice workspace.
+Cruxer turns a pasted job description, company URL, and number of preparation days into an editable interview-preparation kit. It extracts only source-grounded role requirements, researches permitted company and public interview-process sources, builds an Appendix A-compatible kit through deliberate stages, closes question-coverage gaps in code, and gives each authenticated user a persistent practice workspace. It also includes an optional **Quick Mock Interview** custom feature: a live ElevenLabs voice interviewer built from the current kit, followed by an AI-generated scorecard.
 
-The application is deliberately a preparation tool, not a job board, CV writer, application tracker, or mock-video-interview product.
+The application is deliberately a preparation tool, not a job board, CV writer, or application tracker. The voice mock is a focused, kit-scoped practice extension rather than a general-purpose video-interview platform.
 
 ## Contents
 
@@ -13,6 +13,7 @@ The application is deliberately a preparation tool, not a job board, CV writer, 
 - [Coverage, schedules, and flashcards](#coverage-schedules-and-flashcards)
 - [Builder state and regeneration](#builder-state-and-regeneration)
 - [Practice and the creative feature](#practice-and-the-creative-feature)
+- [Quick Mock Interview custom feature](#quick-mock-interview-custom-feature)
 - [Safety, failure handling, and limitations](#safety-failure-handling-and-limitations)
 - [Local setup](#local-setup)
 - [Batch evaluator](#batch-evaluator)
@@ -27,6 +28,7 @@ The application is deliberately a preparation tool, not a job board, CV writer, 
 - A structured kit containing a company brief, evidence-bound role breakdown, categorised questions, flashcards, exact-day schedule, and coverage result.
 - Inline company-brief, question, answer-outline, and flashcard edits; question reordering and category movement; manual questions/flashcards; deletion; and narrow regeneration.
 - Flashcard practice with answer reveal, saved confidence ratings, lowest-confidence-first ordering, completion state, and a dashboard-wide activity/contribution graph.
+- Optional **Quick Mock Interview** tab in every ready kit: a private signed ElevenLabs voice session that asks up to five kit-specific questions, saves the final transcript, and returns a Gemini/Zod scorecard.
 - The mandatory evaluator command: `npm run evaluate -- --input <cases.json> --output <kits.json>`.
 
 ## Technology choices
@@ -38,6 +40,7 @@ The application is deliberately a preparation tool, not a job board, CV writer, 
 | API | Node.js, Express, TypeScript | Matches the preferred stack and is better suited than a short-lived serverless function for a multi-step generation run and polling contract. |
 | Database | MongoDB Atlas with Mongoose | A free-tier managed database for users, kits, generation runs, revision state, and practice activity. |
 | LLM | Gemini 3.1 Flash-Lite via `@google/genai` | Its structured JSON response mode suits narrowly scoped, schema-validated calls at a free-tier-friendly cost. `GEMINI_MODEL` permits an override. |
+| Voice mock interview (custom feature) | ElevenLabs Agents + `@elevenlabs/react` | A browser microphone session uses a short-lived signed URL; the server retrieves the durable conversation transcript and evaluates it without exposing the ElevenLabs API key. |
 | Public-discussion search | Tavily | Bounded, source-attributed search results make public interview discussion discoverable without hard-coding websites. |
 | Company retrieval | Native `fetch`, HTML link/text processing, robots-aware policy | Keeps crawling bounded and auditable without a headless browser. |
 | Validation | Zod | Validates browser/API input, individual model responses, the final Appendix A kit, and the persisted payload. |
@@ -51,6 +54,8 @@ Next.js web (Vercel)
        └─ Express API (Render)
             ├─ authentication, ownership, revisions, generation-run polling
             ├─ MongoDB Atlas: users, kits, runs, confidence/activity
+            ├─ ElevenLabs: signed voice sessions + completed transcript retrieval
+            ├─ Gemini: mock-interview scorecard evaluation
             └─ shared CruxerKitPipeline
                  ├─ safe company crawl + robots policy
                  ├─ Tavily public-discussion search
@@ -154,6 +159,18 @@ The optional feature is a user-scoped **Readiness Runway** on the dashboard. It 
 
 It addresses a practical preparation problem: multiple active interview processes otherwise make it difficult to see where effort has actually gone and what should be studied next. The graph is keyboard-accessible and includes non-colour text/tooltip equivalents.
 
+## Quick Mock Interview custom feature
+
+Quick Mock Interview is an optional extension beyond the assignment’s required kit workflow. From a ready kit, a candidate can start a private voice conversation with an ElevenLabs Agent. Cruxer supplies only the selected kit’s company, role, requirements, company brief, and up to five prioritised questions.
+
+- The browser receives a short-lived signed conversation URL, never the ElevenLabs API key.
+- The Agent’s configured first message uses `{{role}}` and `{{company}}`, which Cruxer provides dynamically for each session.
+- The interviewer follows kit-specific questions with at most one concise follow-up; it does not reveal the source context or give an in-call score.
+- When the candidate ends the session, the API retrieves the completed transcript directly from ElevenLabs, polls briefly while provider processing completes, and evaluates it with Gemini against a Zod-validated scorecard.
+- The session, transcript, evaluation status, failure reason, and final report are owner- and kit-scoped in MongoDB.
+
+No webhook, tunnel, or ElevenLabs HMAC secret is required. The final report covers overall score, relevance, structure, evidence, clarity, strengths, gaps, and concrete next-session actions. It is coaching feedback, not a hiring decision.
+
 ## Safety, failure handling, and limitations
 
 | Situation | Behaviour |
@@ -167,6 +184,7 @@ It addresses a practical preparation problem: multiple active interview processe
 | Duplicate submission | Owner-scoped input hashing prevents an identical concurrent run; the API returns the existing run reference instead of starting duplicate expensive work. |
 | 1-day or 60-day request | The deterministic schedule function is tested at both bounds and always returns exactly the requested number of days. |
 | Generation started twice or fails halfway | Durable `GenerationRun` stages are polled by the UI, failures retain clear terminal status, and retryable runs can be restarted safely. |
+| Voice provider is unavailable, transcript processing is delayed, or evaluation fails | The mock session has clear `completed`, `evaluating`, `ready`, and `failed` states. The API polls ElevenLabs briefly for a completed transcript and stores a safe failure message rather than fabricating a scorecard. |
 
 Key trade-offs:
 
@@ -185,6 +203,7 @@ Key trade-offs:
 - MongoDB Atlas database and database-user credentials
 - Gemini API key
 - Tavily API key
+- Optional Quick Mock Interview: ElevenLabs API key and private Agent ID
 
 Install and configure:
 
@@ -232,11 +251,13 @@ Open `http://localhost:3000`.
 | `GEMINI_MODEL` | Pipeline | Default `gemini-3.1-flash-lite`. |
 | `GEMINI_MIN_REQUEST_INTERVAL_MS` | Pipeline | Minimum gap between Gemini request starts; default `4500`. |
 | `TAVILY_API_KEY` | Pipeline | Server-only public-discussion search credential. |
+| `ELEVENLABS_API_KEY` | API | Optional server-only credential used to issue signed voice-session URLs and retrieve completed mock-interview transcripts. |
+| `ELEVENLABS_AGENT_ID` | API | Optional private ElevenLabs Agent ID for Quick Mock Interview. |
 | `FETCH_TIMEOUT_MS` / `FETCH_MAX_BYTES` | Local configuration | Reserved retrieval-limit configuration values in the root example; the current safe-fetch defaults are 10 seconds and 1 MB. |
 | `API_ORIGIN` | Next.js server | Render API origin used for Vercel’s same-origin `/api/*` rewrite; never expose it as a browser credential. |
 | `NODE_VERSION` | Render | Set to `22.22.0` to avoid an unbounded platform Node major-version upgrade. |
 
-Never commit `.env`, Atlas credentials, Gemini keys, Tavily keys, generated `kits.json`, or any evaluator fixture containing private data.
+Never commit `.env`, Atlas credentials, Gemini keys, Tavily keys, ElevenLabs keys, generated `kits.json`, or any evaluator fixture containing private data.
 
 ## Batch evaluator
 
@@ -290,6 +311,8 @@ GEMINI_API_KEY=<secret>
 GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_MIN_REQUEST_INTERVAL_MS=4500
 TAVILY_API_KEY=<secret>
+ELEVENLABS_API_KEY=<secret, optional Quick Mock Interview feature>
+ELEVENLABS_AGENT_ID=agent_<your-private-agent-id>
 ```
 
 Atlas must allow the Render service to connect. For the free-tier deployment, that commonly means a temporary/public-host access-list entry of `0.0.0.0/0`; it permits connection attempts, not database reads without valid database credentials and TLS. Prefer static egress or private networking for a higher-security deployment.
@@ -323,7 +346,8 @@ Do **not** put MongoDB, JWT, Gemini, or Tavily secrets in Vercel. `API_ORIGIN` c
 3. Create a kit, watch every generation stage, and refresh after it reaches `ready`.
 4. Edit and pin a question, regenerate that category, and confirm it remains.
 5. Rate flashcards, verify the dashboard activity/confidence update, and begin a new lowest-confidence-first session.
-6. Confirm the Render `/health` URL is reachable and no secrets appear in browser bundles or Git history.
+6. If enabled, start and end a Quick Mock Interview; confirm the kit-specific transcript and scorecard appear.
+7. Confirm the Render `/health` URL is reachable and no secrets appear in browser bundles or Git history.
 
 Before submission, replace the deployment URL in the Trao form with the active Vercel URL and provide repository access. The README intentionally does not invent a public URL that has not been deployed.
 
@@ -348,3 +372,5 @@ The test suite covers Appendix A structure validation, stable id/reference invar
 - [MongoDB Atlas free clusters](https://www.mongodb.com/docs/atlas/tutorial/deploy-free-tier-cluster/)
 - [Render free instances](https://render.com/docs/free)
 - [Vercel rewrites](https://vercel.com/docs/routing/rewrites)
+- [ElevenLabs Agents React SDK](https://elevenlabs.io/docs/eleven-agents/libraries/react)
+- [ElevenLabs conversation details API](https://elevenlabs.io/docs/eleven-agents/api-reference/conversations/get)

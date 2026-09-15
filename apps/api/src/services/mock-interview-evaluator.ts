@@ -36,7 +36,8 @@ export async function evaluateMockInterview(sessionId: string): Promise<void> {
       { $set: { status: "ready", report, failure: undefined } },
       { runValidators: true }
     );
-  } catch {
+  } catch (error) {
+    console.error(JSON.stringify({ event: "mock_interview_evaluation_failed", sessionId, errorType: error instanceof Error ? error.name : "unknown" }));
     await MockInterviewSession.findOneAndUpdate(
       { _id: sessionId, status: "evaluating" },
       { $set: { status: "failed", failure: { code: "EVALUATION_FAILED", message: "The interview was saved, but Cruxer could not prepare its scorecard yet." } } },

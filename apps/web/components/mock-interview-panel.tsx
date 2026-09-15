@@ -137,7 +137,7 @@ function Transcript({ turns, live }: { turns: MockInterviewTranscriptTurn[]; liv
 
 function SessionHistory({ sessions }: { sessions: MockInterviewSession[] }) {
   if (sessions.length === 0) return null;
-  return <div className="relative mt-5 border-t pt-5"><div className="flex items-center gap-2"><Sparkles size={15} className="text-signal" /><p className="text-sm font-semibold">Recent mock interviews</p></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{sessions.slice(0, 4).map((session) => <div key={session.id} className="rounded-xl border bg-canvas/40 px-3.5 py-3"><p className="text-sm font-medium">{statusLabel(session.status)}</p><p className="mt-1 text-xs text-muted-ink">{session.selectedQuestionIds.length} questions · {new Date(session.createdAt).toLocaleDateString()}</p></div>)}</div></div>;
+  return <div className="relative mt-5 border-t pt-5"><div className="flex items-center gap-2"><Sparkles size={15} className="text-signal" /><p className="text-sm font-semibold">Recent mock interviews</p></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{sessions.slice(0, 4).map((session) => <div key={session.id} className="rounded-xl border bg-canvas/40 px-3.5 py-3"><p className="text-sm font-medium">{statusLabel(session.status)}</p><p className="mt-1 text-xs text-muted-ink">{session.selectedQuestionIds.length} questions · {new Date(session.createdAt).toLocaleDateString()}</p>{session.failure && <p className="mt-2 text-xs leading-5 text-danger">{session.failure.message}</p>}</div>)}</div></div>;
 }
 
 function Scorecard({ report }: { report: MockInterviewReport }) {
@@ -153,7 +153,7 @@ function statusLabel(status: MockInterviewSession["status"]) {
   if (status === "ready") return "Scorecard ready";
   if (status === "evaluating" || status === "completed" || status === "ending") return "Preparing your scorecard";
   if (status === "active") return "Interview in progress";
-  if (status === "failed") return "Could not start";
+  if (status === "failed") return "Scorecard unavailable";
   return "Ready to start";
 }
 

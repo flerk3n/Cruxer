@@ -88,7 +88,7 @@ export function LandingHero() {
         </div>
       <section data-hero className="marketing-hero marketing-frame pointer-events-none relative z-10 flex min-h-[45rem] flex-col justify-center pt-24 sm:min-h-[51rem] sm:pt-20">
         <div className="pointer-events-none relative z-10 max-w-5xl">
-          <h1 className="marketing-hero-title marketing-hero-title-bold max-w-5xl text-[clamp(4.2rem,11vw,10.7rem)] leading-[.78] text-white">
+          <h1 className="marketing-hero-title marketing-hero-title-bold max-w-5xl text-[clamp(3.9rem,10vw,9.8rem)] leading-[.8] text-white">
             {headline.map((word, index) => <span data-headline-word key={word + "-" + index} className={word === "company." ? "marketing-italic" : ""}>{word} </span>)}
           </h1>
           <div data-intro className="mt-10 flex max-w-4xl flex-col gap-7 sm:flex-row sm:items-center sm:justify-between">

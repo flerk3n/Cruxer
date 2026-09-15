@@ -24,10 +24,10 @@ Add a kit-scoped voice interview mode where a signed-in user can practise five q
 
 ### 1. Foundation and security
 
-1. Add optional ElevenLabs configuration (`ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, webhook secret).
+1. Add optional server-only ElevenLabs configuration (`ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`).
 2. Add a `MockInterviewSession` model with ownership, kit relationship, lifecycle, transcript, report, and provider conversation ID.
 3. Add authenticated, kit-owned APIs to create sessions, issue signed URLs, read sessions, and end sessions.
-4. Use a public, signature-verified post-call webhook for final provider data; make it idempotent.
+4. Retrieve the completed conversation directly from ElevenLabs after the call ends, polling briefly until its transcript is ready.
 
 ### 2. Interview runtime
 
@@ -44,9 +44,9 @@ Add a kit-scoped voice interview mode where a signed-in user can practise five q
 
 ### 4. Quality and release readiness
 
-1. Add route/service tests for ownership, missing configuration, signed URL responses, webhook idempotency, and malformed provider payloads.
-2. Test microphone denial, early exit, lost connection, webhook delay, and no-response sessions.
-3. Document ElevenLabs agent setup, Render environment variables, webhook URL, and usage safeguards.
+1. Add route/service tests for ownership, missing configuration, signed URL responses, transcript polling, and malformed provider responses.
+2. Test microphone denial, early exit, lost connection, delayed transcript processing, and no-response sessions.
+3. Document ElevenLabs agent setup, Render environment variables, direct transcript retrieval, and usage safeguards.
 
 ## Delivery order
 
@@ -56,9 +56,7 @@ Start with Phases 1–2 as a complete secure vertical slice. The live voice UI w
 
 - `ELEVENLABS_API_KEY`: server-only API key.
 - `ELEVENLABS_AGENT_ID`: private Quick Mock interviewer Agent ID.
-- `ELEVENLABS_WEBHOOK_SECRET`: webhook verification secret, once configured in ElevenLabs.
-- ElevenLabs webhook target: `https://<render-api-origin>/webhooks/elevenlabs`.
 
 ## ElevenLabs Agent configuration
 
-Create one private Agent and enable signed-URL authentication. Its system prompt must include `{{interview_context}}` and instruct it to follow that context exactly. Configure a workspace `post_call_transcription` webhook with HMAC enabled; Cruxer verifies the `ElevenLabs-Signature` before accepting the transcript.
+Create one private Agent and enable signed-URL authentication. Its system prompt must include `{{interview_context}}` and instruct it to follow that context exactly. Cruxer retrieves the final transcript server-to-server using the configured API key, so no workspace webhook, tunnel, or webhook secret is required.

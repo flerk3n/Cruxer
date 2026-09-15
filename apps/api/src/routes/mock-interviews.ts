@@ -9,6 +9,7 @@ import { persistedKitSchema, type PersistedKitPayload } from "../lib/kit-validat
 import { requireAuth } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { createElevenLabsSignedUrl } from "../services/elevenlabs.js";
+import { collectMockInterviewTranscript } from "../services/mock-interview-transcript.js";
 
 const kitIdSchema = z.string().refine(isValidObjectId, "Kit id is invalid.");
 const sessionIdSchema = z.string().refine(isValidObjectId, "Mock interview id is invalid.");
@@ -84,12 +85,13 @@ export function createMockInterviewsRouter(config: AppConfig): Router {
       const kitId = kitIdSchema.parse((req.params as { kitId?: string }).kitId);
       const sessionId = sessionIdSchema.parse(req.params.sessionId);
       const session = await MockInterviewSession.findOneAndUpdate(
-        { _id: sessionId, kitId, ownerId: req.auth!.userId, status: { $in: ["created", "active", "ending"] } },
-        { $set: { status: "ending", endedAt: new Date() } },
+        { _id: sessionId, kitId, ownerId: req.auth!.userId, status: { $in: ["created", "active", "ending", "completed"] } },
+        { $set: { status: "completed", endedAt: new Date() } },
         { new: true, runValidators: true }
       );
       if (!session) throw new ApiError(404, "MOCK_INTERVIEW_NOT_FOUND", "The requested mock interview was not found.");
       res.json({ session: serializeMockInterviewSession(session as SessionWithId) });
+      void collectMockInterviewTranscript((session as SessionWithId)._id.toString(), config);
     } catch (error) { next(error); }
   });
 

@@ -7,7 +7,7 @@ import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { ArrowDownRight, ArrowRight, Check, FileText, Layers3, MessageSquare, Mic, Search, Sparkles } from "lucide-react";
+import { ArrowDownRight, ArrowRight, Check, FileText, Github, Layers3, MessageSquare, Mic, Search, Sparkles } from "lucide-react";
 import Cubes from "@/components/Cubes";
 import Folder from "@/components/Folder";
 import PillNav from "@/components/PillNav";
@@ -128,14 +128,14 @@ export function LandingHero() {
 
       <section data-scroll-reveal className="marketing-frame pb-28 sm:pb-40">
         <div className="grid items-center gap-10 lg:grid-cols-[.82fr_1.18fr] lg:gap-20">
-          <div data-reveal-piece className="max-w-xl"><p className="marketing-eyebrow"><Mic size={13} />Speak it through</p><h2 className="marketing-section-title marketing-section-title-sans mt-6 text-5xl leading-[.87] text-white sm:text-6xl">Don’t just prepare.<br /><i>Rehearse under pressure.</i></h2><p className="mt-7 max-w-lg text-lg leading-8 text-slate-300">Quick Mock Interview turns your kit into a focused voice conversation—then gives you a clear scorecard for the next session.</p><div className="mt-9 flex flex-wrap gap-3 text-sm text-indigo-100"><span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[.035] px-3.5 py-2"><Check size={14} className="text-emerald-300" />Kit-specific questions</span><span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[.035] px-3.5 py-2"><Check size={14} className="text-emerald-300" />Actionable feedback</span></div><Link href="/register" className="marketing-cta mt-10">Try a quick mock <ArrowRight size={18} /></Link></div>
+          <div data-reveal-piece className="max-w-xl"><p className="marketing-eyebrow"><Mic size={13} />Speak it through</p><h2 className="marketing-section-title marketing-section-title-sans mt-6 text-5xl leading-[.87] text-white sm:text-6xl">Don’t just prepare.<br /><i>Rehearse under pressure.</i></h2><p className="mt-7 max-w-lg text-lg leading-8 text-slate-300">Quick Mock Interview turns your kit into a focused voice conversation then gives you a clear scorecard for the next session.</p><div className="mt-9 flex flex-wrap gap-3 text-sm text-indigo-100"><span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[.035] px-3.5 py-2"><Check size={14} className="text-emerald-300" />Kit-specific questions</span><span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[.035] px-3.5 py-2"><Check size={14} className="text-emerald-300" />Actionable feedback</span></div><Link href="/register" className="marketing-cta mt-10">Try a quick mock <ArrowRight size={18} /></Link></div>
           <VoiceInterviewPreview />
         </div>
       </section>
 
       <section data-scroll-reveal className="marketing-frame pb-20 sm:pb-28"><div className="marketing-closing relative overflow-hidden rounded-[2rem] border border-white/15 px-6 py-16 sm:px-14 sm:py-24"><div className="absolute inset-0 opacity-40 [background-image:radial-gradient(rgba(199,210,254,.4)_1px,transparent_1px)] [background-size:16px_16px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]" /><div data-reveal-piece className="relative mx-auto max-w-4xl text-center"><p className="marketing-eyebrow justify-center">Know what’s worth saying</p><h2 className="marketing-section-title mt-7 text-5xl leading-[.86] text-white sm:text-7xl">The interview starts before you walk in.</h2><p className="mx-auto mt-7 max-w-xl text-lg leading-8 text-slate-300">Bring the role. Bring the company. Cruxer helps you find the crux.</p><Link href="/register" className="marketing-cta mt-10">Start preparing <ArrowRight size={18} /></Link></div></div></section>
     </main>
-    <footer className="marketing-frame flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-8 text-xs text-indigo-100/55"><span>© {new Date().getFullYear()} Cruxer</span><span>Interview intelligence, made personal.</span></footer>
+    <footer className="marketing-frame flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-8 text-xs text-indigo-100/55"><span>© {new Date().getFullYear()} Cruxer</span><div className="flex flex-wrap items-center gap-x-3 gap-y-2"><span>Interview intelligence, made personal.</span><span className="hidden h-3 w-px bg-indigo-100/20 sm:block" aria-hidden="true" /><span>Made with love by Harsh</span><a href="https://github.com/flerk3n" target="_blank" rel="noreferrer" aria-label="Harsh on GitHub" className="inline-flex items-center text-indigo-100/65 transition hover:text-white"><Github size={15} /></a></div></footer>
   </div>;
 }
 

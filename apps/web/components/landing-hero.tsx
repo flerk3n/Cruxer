@@ -14,7 +14,6 @@ import PillNav from "@/components/PillNav";
 import logoMark from "../../../logo.svg";
 import { Safari } from "@/components/ui/safari";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
-import { api } from "@/lib/api";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -22,7 +21,7 @@ const navItems = [
   { label: "Home", href: "/" },
   { label: "Method", href: "#method" },
   { label: "Toolkit", href: "#toolkit" },
-  { label: "Start", href: "/login" }
+  { label: "Start", href: "/dashboard" }
 ];
 
 const headline = ["Know", "the", "company.", "Own the room."];
@@ -30,17 +29,6 @@ const headline = ["Know", "the", "company.", "Own the room."];
 export function LandingHero() {
   const root = useRef<HTMLDivElement>(null);
   const router = useRouter();
-
-  async function handleStart(item: { href: string }, event: React.MouseEvent<HTMLAnchorElement>) {
-    if (item.href !== "/login") return;
-    event.preventDefault();
-    try {
-      await api.session();
-      router.push("/dashboard");
-    } catch {
-      router.push("/login");
-    }
-  }
 
   useGSAP(() => {
     const media = gsap.matchMedia();
@@ -86,7 +74,7 @@ export function LandingHero() {
         <Image src={logoMark} alt="" className="h-[3.85rem] w-[3.85rem] brightness-0 invert" priority />
         <span className="marketing-wordmark text-[clamp(1.61rem,3.5vw,3.01rem)] leading-none text-white">Cruxer</span>
       </Link>
-      <div className="marketing-nav origin-top-right scale-[0.7]"><PillNav logo={logoMark.src} logoAlt="Cruxer" items={navItems} activeHref="/" baseColor="#11172f" pillColor="#eef2ff" pillTextColor="#11172f" hoveredPillTextColor="#eef2ff" onMobileMenuClick={() => undefined} onItemClick={handleStart} showLogo={false} /></div>
+      <div className="marketing-nav origin-top-right scale-[0.7]"><PillNav logo={logoMark.src} logoAlt="Cruxer" items={navItems} activeHref="/" baseColor="#11172f" pillColor="#eef2ff" pillTextColor="#11172f" hoveredPillTextColor="#eef2ff" onMobileMenuClick={() => undefined} showLogo={false} /></div>
     </header>
 
     <main>

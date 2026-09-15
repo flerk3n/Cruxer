@@ -255,6 +255,7 @@ Open `http://localhost:3000`.
 | `ELEVENLABS_AGENT_ID` | API | Optional private ElevenLabs Agent ID for Quick Mock Interview. |
 | `FETCH_TIMEOUT_MS` / `FETCH_MAX_BYTES` | Local configuration | Reserved retrieval-limit configuration values in the root example; the current safe-fetch defaults are 10 seconds and 1 MB. |
 | `API_ORIGIN` | Next.js server | Render API origin used for Vercel’s same-origin `/api/*` rewrite; never expose it as a browser credential. |
+| `SESSION_COOKIE_NAME` | Next.js middleware | Optional server-only cookie name for the dashboard’s fast signed-out redirect; use `cruxer_session` by default and match API `COOKIE_NAME` if customised. |
 | `NODE_VERSION` | Render | Set to `22.22.0` to avoid an unbounded platform Node major-version upgrade. |
 
 Never commit `.env`, Atlas credentials, Gemini keys, Tavily keys, ElevenLabs keys, generated `kits.json`, or any evaluator fixture containing private data.
@@ -335,6 +336,7 @@ Set the Production variable:
 
 ```text
 API_ORIGIN=https://<render-service>.onrender.com
+SESSION_COOKIE_NAME=cruxer_session
 ```
 
 Do **not** put MongoDB, JWT, Gemini, or Tavily secrets in Vercel. `API_ORIGIN` configures a server-side rewrite from `/api/*` to Render; it keeps browser session cookies same-origin. After Vercel produces its public URL, update Render’s `WEB_ORIGIN` to that exact URL and redeploy the API.

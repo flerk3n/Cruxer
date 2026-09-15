@@ -21,6 +21,7 @@ import {
   Layers3,
   ListChecks,
   LoaderCircle,
+  MessageSquareText,
   Pencil,
   RotateCcw,
   Sparkles,
@@ -32,13 +33,14 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
+import { MockInterviewPanel } from "@/components/mock-interview-panel";
 import { useToast } from "@/components/toast-provider";
 import { api, apiErrorMessage, CruxerApiError, pollGenerationRun, type GenerationRun, type KitDocument, type KitFlashcard, type KitQuestion, type PracticeProgress, type QuestionCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(useGSAP);
 
-type View = "overview" | "questions" | "flashcards" | "schedule";
+type View = "overview" | "questions" | "flashcards" | "schedule" | "mock-interview";
 type Category = "all" | Question["category"];
 
 type Question = {
@@ -91,7 +93,8 @@ const viewItems: Array<{ id: View; label: string; icon: typeof FileText }> = [
   { id: "overview", label: "Overview", icon: FileText },
   { id: "questions", label: "Questions", icon: ListChecks },
   { id: "flashcards", label: "Flashcards", icon: Layers3 },
-  { id: "schedule", label: "Study plan", icon: Clock3 }
+  { id: "schedule", label: "Study plan", icon: Clock3 },
+  { id: "mock-interview", label: "Quick mock", icon: MessageSquareText }
 ];
 
 export function KitBuilder({ kitId }: { kitId: string }) {
@@ -586,6 +589,7 @@ export function KitBuilder({ kitId }: { kitId: string }) {
         />}
         {view === "flashcards" && <><FlashcardsView card={activeFlashcard} index={flashcardIndex} total={cards.length} revealed={revealed} reviewed={sessionReviewed} sessionConfidence={sessionConfidence} complete={sessionComplete} prioritised={practiceProgress.length > 0} onReveal={() => setRevealed(true)} onConfidence={recordConfidence} onRestart={() => restartFlashcardSession("Practice session restarted.")} onRegenerate={regenerateFlashcards} regenerating={pendingAction === "regenerate-flashcards"} /><FlashcardLibrary cards={cards} editingId={editingFlashcardId} draft={flashcardDraft} adding={addingFlashcard} addDraft={addFlashcardDraft} saving={pendingAction} onEdit={startEditingFlashcard} onDraft={setFlashcardDraft} onCancelEdit={() => setEditingFlashcardId(null)} onSave={saveFlashcard} onAdd={() => setAddingFlashcard(true)} onAddDraft={setAddFlashcardDraft} onCancelAdd={() => setAddingFlashcard(false)} onConfirmAdd={addFlashcard} onDelete={setDeletingFlashcardId} /></>}
         {view === "schedule" && <ScheduleView expandedDay={expandedDay} onToggle={setExpandedDay} questions={questions} plan={plan} onRegenerate={() => void regenerateSection("schedule")} regenerating={pendingAction === "regenerate-schedule"} generationRun={generationRun} />}
+        {view === "mock-interview" && <MockInterviewPanel kitId={kitId} questionCount={Math.min(5, Math.max(1, questions.length))} />}
       </main>
     </div>
 

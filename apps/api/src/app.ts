@@ -7,6 +7,8 @@ import { errorHandler, notFound, requestContext } from "./lib/errors.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createGenerationRunsRouter } from "./routes/generation-runs.js";
 import { createKitsRouter } from "./routes/kits.js";
+import { createMockInterviewsRouter } from "./routes/mock-interviews.js";
+import { createElevenLabsWebhookRouter } from "./routes/elevenlabs-webhook.js";
 import { createWorkspaceRouter } from "./routes/workspace.js";
 import { CruxerKitPipeline, type KitPipeline } from "../../../packages/pipeline/src/index.js";
 import { GenerationOrchestrator } from "./services/generation-orchestrator.js";
@@ -24,6 +26,7 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   app.use(requestContext);
   app.use(helmet({ crossOriginResourcePolicy: { policy: "same-site" } }));
   app.use(cors({ origin: config.WEB_ORIGIN, credentials: true, methods: ["GET", "POST", "PATCH", "DELETE"] }));
+  app.use("/webhooks/elevenlabs", createElevenLabsWebhookRouter(config));
   app.use(express.json({ limit: "100kb", type: "application/json" }));
   app.use(cookieParser());
 
@@ -31,6 +34,7 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   app.use("/auth", createAuthRouter(config));
   const generation = new GenerationOrchestrator(dependencies.pipeline ?? new CruxerKitPipeline());
   app.use("/kits", createKitsRouter(config, generation));
+  app.use("/kits/:kitId/mock-interviews", createMockInterviewsRouter(config));
   app.use("/workspace", createWorkspaceRouter(config));
   app.use("/generation-runs", createGenerationRunsRouter(config, generation));
 

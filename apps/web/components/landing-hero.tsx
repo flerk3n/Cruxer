@@ -25,7 +25,7 @@ const navItems = [
   { label: "Start", href: "/login" }
 ];
 
-const headline = ["Know", "the", "company.", "Own", "the", "room."];
+const headline = ["Know", "the", "company.", "Own the room."];
 
 export function LandingHero() {
   const root = useRef<HTMLDivElement>(null);
@@ -86,10 +86,10 @@ export function LandingHero() {
         <div data-hero-cubes className="marketing-cubes pointer-events-auto absolute inset-y-0 left-1/2 z-0 w-[calc(100%-2.5rem)] max-w-[1600px] -translate-x-1/2 opacity-90 sm:w-[calc(100%-4.5rem)] lg:w-[calc(100%-6rem)] [mask-image:linear-gradient(to_bottom,black_0%,black_91%,transparent_100%)]">
           <Cubes gridSize={14} cubeSize={undefined} cellGap={1} maxAngle={68} radius={4.5} duration={{ enter: 0.16, leave: 0.34 }} autoAnimate={false} rippleOnClick={true} rippleColor="#c7d2fe" rippleSpeed={1.8} borderStyle="2px dashed #818cf8" faceColor="#1a1a2e" />
         </div>
-      <section data-hero className="marketing-hero marketing-frame pointer-events-none relative z-10 flex min-h-[45rem] flex-col justify-center pt-24 sm:min-h-[51rem] sm:pt-20">
+      <section data-hero className="marketing-hero marketing-frame pointer-events-none relative z-10 flex min-h-[45rem] flex-col justify-center pt-16 sm:min-h-[51rem] sm:pt-14">
         <div className="pointer-events-none relative z-10 max-w-5xl">
           <h1 className="marketing-hero-title marketing-hero-title-bold max-w-5xl text-[clamp(3.9rem,10vw,9.8rem)] leading-[.8] text-white">
-            {headline.map((word, index) => <span data-headline-word key={word + "-" + index} className={word === "company." ? "marketing-italic" : ""}>{word} </span>)}
+            {headline.map((word, index) => <span data-headline-word key={word + "-" + index} className={`${word === "company." ? "marketing-italic" : ""} ${word === "Own the room." ? "whitespace-nowrap" : ""}`}>{word} </span>)}
           </h1>
           <div data-intro className="mt-10 flex max-w-4xl flex-col gap-7 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-left text-lg font-medium leading-8 text-slate-100 sm:text-[1.3rem] sm:leading-9"><span className="block sm:whitespace-nowrap">Cruxer turns a role and a company into the exact evidence,</span><span className="block sm:whitespace-nowrap">questions, and practice that will make your next conversation count.</span></p>

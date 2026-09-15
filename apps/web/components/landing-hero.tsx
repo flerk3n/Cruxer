@@ -108,7 +108,15 @@ export function LandingHero() {
 
       <section className="marketing-frame relative z-10 pb-28 sm:pb-36">
         <div data-safari className="marketing-safari mx-auto max-w-6xl rounded-[1.55rem] border border-white/20 bg-[#d8dbe2] p-1.5 shadow-[0_35px_90px_rgba(0,0,0,.42)] sm:p-2">
-          <Safari url="cruxer.app" className="block w-full" />
+          <Safari
+            url="cruxer.app"
+            className="block w-full"
+            videoPoster="/landing/cruxer-product-tour-poster.jpg"
+            videoSources={[
+              { src: "/landing/cruxer-product-tour.webm", type: 'video/webm; codecs="vp9"' },
+              { src: "/landing/cruxer-product-tour.mp4", type: 'video/mp4; codecs="avc1.4D401F"' }
+            ]}
+          />
         </div>
       </section>
       </div>

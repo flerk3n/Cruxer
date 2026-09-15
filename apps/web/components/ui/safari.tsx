@@ -1,4 +1,6 @@
-import type { HTMLAttributes } from "react"
+"use client"
+
+import { useEffect, useRef, useState, type HTMLAttributes } from "react"
 
 const SAFARI_WIDTH = 1203
 const SAFARI_HEIGHT = 753
@@ -19,23 +21,47 @@ export interface SafariProps extends HTMLAttributes<HTMLDivElement> {
   url?: string
   imageSrc?: string
   videoSrc?: string
+  videoSources?: { src: string; type: string }[]
+  videoPoster?: string
   mode?: SafariMode
 }
 
 export function Safari({
   imageSrc,
   videoSrc,
+  videoSources,
+  videoPoster,
   url,
   mode = "default",
   className,
   style,
   ...props
 }: SafariProps) {
-  const hasVideo = !!videoSrc
+  const root = useRef<HTMLDivElement>(null)
+  const [videoReady, setVideoReady] = useState(false)
+  const sources = videoSources?.length ? videoSources : videoSrc ? [{ src: videoSrc, type: "video/mp4" }] : []
+  const hasVideo = sources.length > 0
   const hasMedia = hasVideo || !!imageSrc
+
+  useEffect(() => {
+    if (!hasVideo) return
+    const target = root.current
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setVideoReady(true)
+      return
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return
+      setVideoReady(true)
+      observer.disconnect()
+    }, { rootMargin: "320px 0px" })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasVideo])
 
   return (
     <div
+      ref={root}
       className={`relative inline-block w-full align-middle leading-none ${className ?? ""}`}
       style={{
         aspectRatio: `${SAFARI_WIDTH}/${SAFARI_HEIGHT}`,
@@ -53,15 +79,10 @@ export function Safari({
             height: `${HEIGHT_PCT}%`,
           }}
         >
-          <video
-            className="block size-full object-cover"
-            src={videoSrc}
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="metadata"
-          />
+          {!videoReady && videoPoster && <img src={videoPoster} alt="" className="block size-full object-cover" />}
+          {videoReady && <video className="block size-full object-cover" autoPlay loop muted playsInline preload="metadata" poster={videoPoster} aria-hidden="true">
+            {sources.map((source) => <source key={source.src} src={source.src} type={source.type} />)}
+          </video>}
         </div>
       )}
 

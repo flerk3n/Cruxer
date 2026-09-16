@@ -80,6 +80,9 @@ const Cubes = ({
 
   const onPointerMove = useCallback(
     e => {
+      // Touch gestures belong to the page so a cube background never captures scrolling.
+      if (e.pointerType === 'touch') return;
+
       userActiveRef.current = true;
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
 
@@ -114,42 +117,6 @@ const Cubes = ({
     activeCubesRef.current = new Set();
     lastCellRef.current = null;
   }, [leaveDur]);
-
-  const onTouchMove = useCallback(
-    e => {
-      e.preventDefault();
-      userActiveRef.current = true;
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-
-      const rect = sceneRef.current.getBoundingClientRect();
-      const cellW = rect.width / gridSize;
-      const cellH = rect.height / gridSize;
-
-      const touch = e.touches[0];
-      const colCenter = (touch.clientX - rect.left) / cellW;
-      const rowCenter = (touch.clientY - rect.top) / cellH;
-      const cell = `${Math.floor(rowCenter)}:${Math.floor(colCenter)}`;
-      if (cell === lastCellRef.current) return;
-      lastCellRef.current = cell;
-
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => tiltAt(rowCenter, colCenter));
-
-      idleTimerRef.current = setTimeout(() => {
-        userActiveRef.current = false;
-      }, 3000);
-    },
-    [gridSize, tiltAt]
-  );
-
-  const onTouchStart = useCallback(() => {
-    userActiveRef.current = true;
-  }, []);
-
-  const onTouchEnd = useCallback(() => {
-    if (!sceneRef.current) return;
-    resetAll();
-  }, [resetAll]);
 
   const onClick = useCallback(
     e => {
@@ -255,23 +222,15 @@ const Cubes = ({
     el.addEventListener('pointerleave', resetAll);
     el.addEventListener('click', onClick);
 
-    el.addEventListener('touchmove', onTouchMove, { passive: false });
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchend', onTouchEnd, { passive: true });
-
     return () => {
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerleave', resetAll);
       el.removeEventListener('click', onClick);
 
-      el.removeEventListener('touchmove', onTouchMove);
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchend', onTouchEnd);
-
       rafRef.current != null && cancelAnimationFrame(rafRef.current);
       idleTimerRef.current && clearTimeout(idleTimerRef.current);
     };
-  }, [onPointerMove, resetAll, onClick, onTouchMove, onTouchStart, onTouchEnd]);
+  }, [onPointerMove, resetAll, onClick]);
 
   const cells = Array.from({ length: gridSize });
   const sceneStyle = {

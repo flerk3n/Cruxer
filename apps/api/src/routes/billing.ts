@@ -48,6 +48,10 @@ export function createBillingRouter(config: AppConfig, provider: BillingProvider
       if (context.subscription && context.plan === "pro") {
         throw new ApiError(409, "ALREADY_SUBSCRIBED", "You already have Cruxer Pro. Manage it from the billing page.");
       }
+      if (context.subscription && ["on_hold", "past_due", "paused"].includes(context.subscription.status)) {
+        // Reactivating the existing subscription avoids a second, overlapping subscription.
+        throw new ApiError(409, "SUBSCRIPTION_NEEDS_ATTENTION", "Your Pro subscription is paused for payment. Update your payment method from Manage billing to restore it.");
+      }
       const user = await User.findById(userId).select("email name dodoCustomerId").lean();
       if (!user) throw new ApiError(401, "INVALID_SESSION", "Your session is no longer valid. Please sign in again.");
       const { checkoutUrl } = await provider.createCheckout({

@@ -14,6 +14,7 @@ The application is deliberately a preparation tool, not a job board, CV writer, 
 - [Builder state and regeneration](#builder-state-and-regeneration)
 - [Practice and the creative feature](#practice-and-the-creative-feature)
 - [Quick Mock Interview custom feature](#quick-mock-interview-custom-feature)
+- [Plans, billing, and launch controls](#plans-billing-and-launch-controls)
 - [Safety, failure handling, and limitations](#safety-failure-handling-and-limitations)
 - [Local setup](#local-setup)
 - [Batch evaluator](#batch-evaluator)
@@ -29,6 +30,9 @@ The application is deliberately a preparation tool, not a job board, CV writer, 
 - Inline company-brief, question, answer-outline, and flashcard edits; question reordering and category movement; manual questions/flashcards; deletion; and narrow regeneration.
 - Flashcard practice with answer reveal, saved confidence ratings, lowest-confidence-first ordering, completion state, and a dashboard-wide activity/contribution graph.
 - Optional **Quick Mock Interview** tab in every ready kit: a private signed ElevenLabs voice session that asks up to five kit-specific questions, saves the final transcript, and returns a Gemini/Zod scorecard.
+- **Free and Pro plans** enforced server-side: Free gets 5 kits a month and no live mock; Pro ($9/month through Dodo Payments) gets 25 kits and 30 voice minutes per billing period.
+- Email verification (Resend) and Cloudflare Turnstile on sign-up and sign-in; disposable inboxes are refused.
+- Vercel Web Analytics page views plus funnel events, with query strings redacted.
 - The mandatory evaluator command: `npm run evaluate -- --input <cases.json> --output <kits.json>`.
 
 ## Technology choices
@@ -171,6 +175,82 @@ Quick Mock Interview is an optional extension beyond the assignment’s required
 
 No webhook, tunnel, or ElevenLabs HMAC secret is required. The final report covers overall score, relevance, structure, evidence, clarity, strengths, gaps, and concrete next-session actions. It is coaching feedback, not a hiring decision.
 
+## Plans, billing, and launch controls
+
+### Plans
+
+| | Free | Pro ($9/month, no trial) |
+| --- | --- | --- |
+| Kit generations | 5 per calendar month (UTC) | 25 per billing period |
+| Live mock interview | Not included | 30 minutes per billing period, max 10 minutes per session |
+| Section regenerations | 3 per kit | 10 per kit |
+| Practice, editing, dashboard | Unlimited | Unlimited |
+
+Limits live in one file, `apps/api/src/billing/plans.ts`. The public pricing copy in `apps/web/lib/plans.ts` mirrors it. The pricing is built to stay profitable at full use, using 2026 list prices:
+
+- A kit costs about $0.10 in Gemini Flash-Lite and Tavily calls.
+- A voice minute costs about $0.10 (ElevenLabs Agents, the agent's LLM, and scoring).
+- Dodo's worst-case fee is about $0.94 per $9 payment.
+
+A Pro subscriber who uses every kit and minute costs about $5.50 against $8.06 of net revenue.
+
+### How enforcement works
+
+- **Usage counters.** Each user has one `UsageCounter` row per period: `free:YYYY-MM`, or `pro:<subscriptionId>:<periodStart>`, so usage resets on renewal. Kits are reserved with an atomic conditional increment, so concurrent requests can't overspend.
+- **Ledger.** Every reserve, refund and settle is written to the append-only `UsageEvent` ledger with a unique `(type, refId)`, which makes each operation idempotent.
+- **Kit credits** are charged when a generation run is created. Any attempt that fails (or is interrupted) is refunded exactly once; a retry is charged as a new attempt.
+- **Regenerations** use a per-kit counter that is checked inside the kit's reservation predicate.
+- **Voice minutes:**
+  - Starting a mock reserves `min(remaining, 10 min)`. The browser counts that ceiling down and ends the call when it reaches zero.
+  - After the call, the API reads the provider's `call_duration_secs` and bills the real length.
+  - It also checks that the conversation belongs to Cruxer's agent and to that session id. A mismatch is billed at the full reservation.
+  - Configure the ElevenLabs agent's **max conversation duration as 600 seconds**, so the provider enforces the cap too.
+- **Background sweeper** (`apps/api/src/jobs/sweeper.ts`) runs at boot and every 5 minutes. Generation runs stuck for over 15 minutes become retryable and are refunded. Abandoned or unsettled voice sessions are settled from ElevenLabs.
+
+### Dodo Payments
+
+1. In Dodo (test mode first), create a subscription product named **Cruxer Pro** at $9/month with no trial. Copy its product id into `DODO_PRO_PRODUCT_ID`.
+2. Add a webhook to `https://<web-domain>/api/billing/webhook` and subscribe to all `subscription.*` events. Put its secret in `DODO_PAYMENTS_WEBHOOK_KEY`.
+3. Set `DODO_PAYMENTS_API_KEY` and `DODO_PAYMENTS_ENVIRONMENT` (`test_mode` or `live_mode`).
+
+The checkout flow:
+
+1. `POST /billing/checkout` creates a hosted checkout. The authenticated user's id goes in its metadata.
+2. Dodo returns the user to `/dashboard/billing?checkout=return`, which polls until the webhook lands.
+
+The webhook handler:
+
+- verifies the Standard Webhooks signature over the raw body (it is mounted before `express.json()`);
+- dedupes on `webhook-id`;
+- re-reads the subscription from the Dodo API, so out-of-order deliveries can't regress state.
+
+Access rules:
+
+- `active` means Pro.
+- `cancelled` keeps Pro until the paid period ends.
+- `on_hold`, `failed` and `expired` fall back to Free.
+- Customers manage their card and cancellation in Dodo's customer portal (`POST /billing/portal`).
+
+### Signup protection
+
+- **Verification email.** Registration sends a link (`/verify-email?token=…`) through Resend. Only a SHA-256 hash of the token is stored; it expires after 24 hours and works once.
+- **What requires verification.** Generation, regeneration, retry, mock interviews and checkout all require a verified email in production. Resends are limited to one per minute and five per day.
+- **Turnstile.** Cloudflare Turnstile protects register and login. It is skipped locally when no keys are set.
+- **Disposable inboxes** are refused at registration.
+
+### Analytics
+
+- **Page views.** Vercel Web Analytics covers every page. A `beforeSend` hook strips query strings, so verification tokens and checkout parameters are never reported.
+- **Funnel events** (`apps/web/lib/analytics.ts`, never with personal data):
+  - `sign_up`, `email_verified`
+  - `kit_generation_started`, `kit_ready`
+  - `quota_exceeded`, `upgrade_clicked`, `checkout_started`, `checkout_completed`
+  - `mock_started`, `mock_completed`
+  - `billing_portal_opened`
+
+  Custom events require Vercel Pro, which commercial use needs anyway.
+- **Unit economics.** Run `npm run usage-report --workspace @cruxer/api -- --month YYYY-MM` for kits, voice minutes, estimated cost and margin per plan, computed from the ledger. Dodo's dashboard covers revenue, MRR and churn.
+
 ## Safety, failure handling, and limitations
 
 | Situation | Behaviour |
@@ -252,7 +332,15 @@ Open `http://localhost:3000`.
 | `GEMINI_MIN_REQUEST_INTERVAL_MS` | Pipeline | Minimum gap between Gemini request starts; default `4500`. |
 | `TAVILY_API_KEY` | Pipeline | Server-only public-discussion search credential. |
 | `ELEVENLABS_API_KEY` | API | Optional server-only credential used to issue signed voice-session URLs and retrieve completed mock-interview transcripts. |
-| `ELEVENLABS_AGENT_ID` | API | Optional private ElevenLabs Agent ID for Quick Mock Interview. |
+| `ELEVENLABS_AGENT_ID` | API | Optional private ElevenLabs Agent ID for Quick Mock Interview. Set the agent's max conversation duration to 600 s. |
+| `DODO_PAYMENTS_API_KEY` / `DODO_PAYMENTS_WEBHOOK_KEY` | API | Dodo Payments API key and webhook signing secret. Required in production unless `BILLING_ENABLED=false`. |
+| `DODO_PAYMENTS_ENVIRONMENT` | API | `test_mode` or `live_mode`. |
+| `DODO_PRO_PRODUCT_ID` | API | The $9/month "Cruxer Pro" subscription product. |
+| `RESEND_API_KEY` / `EMAIL_FROM` | API | Verification email delivery. Required in production. |
+| `TURNSTILE_SECRET_KEY` | API | Cloudflare Turnstile secret. Required in production. |
+| `REQUIRE_EMAIL_VERIFICATION` / `DEV_GRANT_PRO` | API (local only) | Exercise verification locally, or treat every local user as Pro. `DEV_GRANT_PRO` is rejected in production. |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Web | Public Turnstile site key. |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | Web | Contact address shown on the Terms, Privacy and Refund pages. |
 | `FETCH_TIMEOUT_MS` / `FETCH_MAX_BYTES` | Local configuration | Reserved retrieval-limit configuration values in the root example; the current safe-fetch defaults are 10 seconds and 1 MB. |
 | `API_ORIGIN` | Next.js server | Render API origin used for Vercel’s same-origin `/api/*` rewrite; never expose it as a browser credential. |
 | `SESSION_COOKIE_NAME` | Next.js middleware | Optional server-only cookie name for the dashboard’s fast signed-out redirect; use `cruxer_session` by default and match API `COOKIE_NAME` if customised. |
@@ -312,9 +400,18 @@ GEMINI_API_KEY=<secret>
 GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_MIN_REQUEST_INTERVAL_MS=4500
 TAVILY_API_KEY=<secret>
-ELEVENLABS_API_KEY=<secret, optional Quick Mock Interview feature>
+ELEVENLABS_API_KEY=<secret, Pro Quick Mock Interview>
 ELEVENLABS_AGENT_ID=agent_<your-private-agent-id>
+DODO_PAYMENTS_API_KEY=<secret>
+DODO_PAYMENTS_WEBHOOK_KEY=<secret>
+DODO_PAYMENTS_ENVIRONMENT=live_mode
+DODO_PRO_PRODUCT_ID=<pdt_...>
+RESEND_API_KEY=<secret>
+EMAIL_FROM=Cruxer <hello@your-domain.com>
+TURNSTILE_SECRET_KEY=<secret>
 ```
+
+For a paid launch, use the Render **Starter** plan (free instances sleep and lose in-flight generations), enable the paid Gemini tier, and lower `GEMINI_MIN_REQUEST_INTERVAL_MS` to about 500.
 
 Atlas must allow the Render service to connect. For the free-tier deployment, that commonly means a temporary/public-host access-list entry of `0.0.0.0/0`; it permits connection attempts, not database reads without valid database credentials and TLS. Prefer static egress or private networking for a higher-security deployment.
 
@@ -337,7 +434,11 @@ Set the Production variable:
 ```text
 API_ORIGIN=https://<render-service>.onrender.com
 SESSION_COOKIE_NAME=cruxer_session
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=<site key>
+NEXT_PUBLIC_SUPPORT_EMAIL=<support address>
 ```
+
+Vercel's Hobby plan is for non-commercial use, so a paid launch needs Vercel **Pro**, which also enables custom analytics events.
 
 Do **not** put MongoDB, JWT, Gemini, or Tavily secrets in Vercel. `API_ORIGIN` configures a server-side rewrite from `/api/*` to Render; it keeps browser session cookies same-origin. After Vercel produces its public URL, update Render’s `WEB_ORIGIN` to that exact URL and redeploy the API.
 
@@ -348,8 +449,10 @@ Do **not** put MongoDB, JWT, Gemini, or Tavily secrets in Vercel. `API_ORIGIN` c
 3. Create a kit, watch every generation stage, and refresh after it reaches `ready`.
 4. Edit and pin a question, regenerate that category, and confirm it remains.
 5. Rate flashcards, verify the dashboard activity/confidence update, and begin a new lowest-confidence-first session.
-6. If enabled, start and end a Quick Mock Interview; confirm the kit-specific transcript and scorecard appear.
-7. Confirm the Render `/health` URL is reachable and no secrets appear in browser bundles or Git history.
+6. Verify the email link, then confirm a free account stops at the sixth kit and sees the mock interview locked.
+7. Upgrade with a Dodo test card. Confirm `/dashboard/billing` turns Pro, then start and end a Quick Mock Interview. Check that the transcript and scorecard appear and that the minutes drop by the real call length.
+8. Cancel in the customer portal and confirm Pro stays until the period ends.
+9. Confirm the Render `/health` URL is reachable and no secrets appear in browser bundles or Git history.
 
 Before submission, replace the deployment URL in the Trao form with the active Vercel URL and provide repository access. The README intentionally does not invent a public URL that has not been deployed.
 

@@ -4,19 +4,32 @@ import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { CircleAlert, LoaderCircle, MessageSquareText, Mic, MicOff, PhoneOff, Radio, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
+import { useAccount } from "@/components/account-provider";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { api, apiErrorMessage, type MockInterviewReport, type MockInterviewSession, type MockInterviewTranscriptTurn } from "@/lib/api";
+import { api, apiErrorMessage, quotaError, type MockInterviewReport, type MockInterviewSession, type MockInterviewTranscriptTurn } from "@/lib/api";
+import { track } from "@/lib/analytics";
+import { PRICING } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 type RuntimeState = "idle" | "requesting-mic" | "connecting" | "live" | "ending" | "waiting-scorecard" | "error";
 
 export function MockInterviewPanel({ kitId, questionCount }: { kitId: string; questionCount: number }) {
+  const { billing } = useAccount();
+  if (billing && billing.usage.mockSeconds.limit === 0) return <MockInterviewLocked />;
   return <ConversationProvider><MockInterviewRuntime kitId={kitId} questionCount={questionCount} /></ConversationProvider>;
+}
+
+function MockInterviewLocked() {
+  return <section className="mx-auto max-w-4xl"><Card className="relative overflow-hidden p-5 shadow-[0_18px_54px_hsl(var(--ink)/0.08)] sm:p-8"><div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-violet/15 blur-3xl" aria-hidden="true" /><div className="relative"><p className="eyebrow text-violet">Voice practice · Pro</p><h2 className="mt-2 text-[clamp(1.85rem,4vw,3rem)] font-semibold tracking-[-0.05em]">Quick mock interview</h2><p className="mt-3 max-w-xl text-sm leading-6 text-muted-ink">Practise out loud with a private AI interviewer that asks up to five questions from this kit, then get a structured scorecard on relevance, structure, evidence and clarity.</p><UpgradePrompt className="mt-7" source="mock_interview" title="Live mock interviews are part of Pro" message={`Pro includes ${PRICING.pro.mockMinutes} minutes of voice mock interviews and ${PRICING.pro.kits} kits every month.`} /></div></Card></section>;
 }
 
 function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questionCount: number }) {
   const conversation = useConversation();
+  const { billing, refresh } = useAccount();
+  const [maxDuration, setMaxDuration] = useState<number | null>(null);
+  const endRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionRef = useRef<MockInterviewSession | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState>("idle");
   const [session, setSession] = useState<MockInterviewSession | null>(null);
@@ -33,7 +46,11 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
   function loadSessions() {
     void api.getMockInterviews(kitId).then(({ sessions }) => {
       setRecentSessions(sessions);
-      if (sessionRef.current && sessions[0]?.id === sessionRef.current.id && sessions[0].status === "ready") setRuntime("idle");
+      if (sessionRef.current && sessions[0]?.id === sessionRef.current.id && sessions[0].status === "ready") {
+        setRuntime("idle");
+        track("mock_completed");
+        void refresh();
+      }
     }).catch(() => {
       // The empty state remains useful when the provider is not configured yet.
     });
@@ -51,6 +68,10 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1_000)), 1_000);
     return () => window.clearInterval(timer);
   }, [elapsed, runtime]);
+  // The session ceiling comes from the user's remaining Pro minutes; end politely when it is reached.
+  useEffect(() => {
+    if (runtime === "live" && maxDuration !== null && elapsed >= maxDuration) void endRef.current();
+  }, [elapsed, maxDuration, runtime]);
 
   async function start() {
     setError(null);
@@ -60,6 +81,8 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
       stream.getTracks().forEach((track) => track.stop());
       const started = await api.startMockInterview(kitId, Math.min(5, Math.max(1, questionCount)));
       applySession(started.session);
+      setMaxDuration(started.maxDurationSeconds);
+      track("mock_started", { minutes: Math.round(started.maxDurationSeconds / 60) });
       setTurns([]);
       setElapsed(0);
       setRuntime("connecting");
@@ -94,6 +117,11 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
       });
     } catch (cause) {
       const denied = cause instanceof DOMException && cause.name === "NotAllowedError";
+      const limit = quotaError(cause);
+      if (limit) {
+        track("quota_exceeded", { feature: limit.feature, plan: limit.plan });
+        void refresh();
+      }
       setError(denied ? "Microphone access is required for a voice mock interview. Allow it in your browser, then try again." : apiErrorMessage(cause));
       setRuntime("error");
     }
@@ -101,6 +129,7 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
 
   async function end() {
     const active = sessionRef.current;
+    if (runtime === "ending") return;
     setRuntime("ending");
     conversation.endSession();
     if (!active) return;
@@ -115,12 +144,15 @@ function MockInterviewRuntime({ kitId, questionCount }: { kitId: string; questio
     }
   }
 
+  endRef.current = end;
+  const minutesLeft = billing ? Math.max(0, Math.floor((billing.usage.mockSeconds.limit - billing.usage.mockSeconds.used - billing.usage.mockSeconds.reserved) / 60)) : null;
+  const remaining = maxDuration !== null ? Math.max(0, maxDuration - elapsed) : null;
   const active = runtime === "requesting-mic" || runtime === "connecting" || runtime === "live" || runtime === "ending";
   const statusText = runtime === "requesting-mic" ? "Waiting for microphone permission" : runtime === "connecting" ? "Connecting your private interview" : runtime === "live" ? (conversation.isSpeaking ? "Interviewer is speaking" : "Listening for your answer") : runtime === "ending" ? "Finishing your interview" : runtime === "waiting-scorecard" ? "Preparing your scorecard" : "Ready when you are";
 
   return <section className="mx-auto max-w-4xl"><Card className="relative overflow-hidden p-5 shadow-[0_18px_54px_hsl(var(--ink)/0.08)] sm:p-8"><div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-violet/15 blur-3xl" aria-hidden="true" /><div className="absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-signal/10 blur-3xl" aria-hidden="true" /><div className="relative"><div className="flex flex-wrap items-start justify-between gap-5"><div><p className="eyebrow text-violet">Voice practice</p><h2 className="mt-2 text-[clamp(1.85rem,4vw,3rem)] font-semibold tracking-[-0.05em]">Quick mock interview</h2><p className="mt-3 max-w-xl text-sm leading-6 text-muted-ink">A private interviewer will take you through up to five questions from this kit. Your transcript is assessed after the conversation ends.</p></div><span className="inline-flex items-center gap-2 rounded-full border bg-surface/70 px-3 py-1.5 text-xs font-medium text-muted-ink"><ShieldCheck size={14} className="text-success" />Private signed session</span></div>
 
-    <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]"><div className="rounded-[1.4rem] border bg-canvas/55 p-5 sm:p-6"><div className="flex items-center justify-between gap-4"><div className="flex items-center gap-3"><span className={cn("grid h-11 w-11 place-items-center rounded-2xl", runtime === "live" ? "bg-signal/12 text-signal" : "bg-violet/10 text-violet")}><Radio size={19} className={runtime === "live" ? "animate-pulse" : ""} /></span><div><p className="text-sm font-semibold">{statusText}</p><p className="mt-0.5 text-xs text-muted-ink">{runtime === "live" ? formatElapsed(elapsed) : `${Math.min(5, Math.max(1, questionCount))} questions · microphone required`}</p></div></div>{active && <span className="flex gap-1" aria-label="Voice activity">{[0, 1, 2, 3].map((bar) => <i key={bar} className={cn("h-5 w-1 rounded-full bg-signal", conversation.isSpeaking && "animate-pulse")} style={{ animationDelay: `${bar * 80}ms` }} />)}</span>}</div>
+    <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]"><div className="rounded-[1.4rem] border bg-canvas/55 p-5 sm:p-6"><div className="flex items-center justify-between gap-4"><div className="flex items-center gap-3"><span className={cn("grid h-11 w-11 place-items-center rounded-2xl", runtime === "live" ? "bg-signal/12 text-signal" : "bg-violet/10 text-violet")}><Radio size={19} className={runtime === "live" ? "animate-pulse" : ""} /></span><div><p className="text-sm font-semibold">{statusText}</p><p className="mt-0.5 text-xs text-muted-ink">{runtime === "live" ? (remaining !== null ? `${formatElapsed(elapsed)} · ${formatElapsed(remaining)} left` : formatElapsed(elapsed)) : `${Math.min(5, Math.max(1, questionCount))} questions · microphone required${minutesLeft !== null ? ` · ${minutesLeft} min left this period` : ""}`}</p></div></div>{active && <span className="flex gap-1" aria-label="Voice activity">{[0, 1, 2, 3].map((bar) => <i key={bar} className={cn("h-5 w-1 rounded-full bg-signal", conversation.isSpeaking && "animate-pulse")} style={{ animationDelay: `${bar * 80}ms` }} />)}</span>}</div>
         <div className="mt-7 flex flex-wrap gap-3">{active ? <><Button onClick={() => void end()} variant="secondary" disabled={runtime === "ending"}>{runtime === "ending" ? <LoaderCircle size={16} className="animate-spin" /> : <PhoneOff size={16} />}{runtime === "ending" ? "Ending…" : "End interview"}</Button><Button variant="ghost" onClick={() => conversation.setMuted(!conversation.isMuted)}>{conversation.isMuted ? <MicOff size={16} /> : <Mic size={16} />}{conversation.isMuted ? "Unmute" : "Mute"}</Button></> : runtime === "waiting-scorecard" ? <Button variant="secondary" disabled><LoaderCircle size={16} className="animate-spin" />Waiting for scorecard…</Button> : <Button onClick={() => void start()}>{runtime === "error" ? <CircleAlert size={16} /> : <Mic size={16} />}{runtime === "error" ? "Try again" : "Start voice interview"}</Button>}</div>
         {error && <p role="alert" className="mt-5 flex items-start gap-2 rounded-xl border border-danger/25 bg-danger/5 p-3 text-sm leading-6 text-danger"><CircleAlert size={16} className="mt-0.5 shrink-0" />{error}</p>}</div>
       <aside className="rounded-[1.4rem] border bg-violet/5 p-5"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet">How it works</p><ol className="mt-4 space-y-3 text-sm leading-6 text-muted-ink"><li><b className="mr-2 text-ink">01</b>Speak through kit-specific prompts.</li><li><b className="mr-2 text-ink">02</b>End when you are ready.</li><li><b className="mr-2 text-ink">03</b>Receive a structured scorecard.</li></ol></aside></div>

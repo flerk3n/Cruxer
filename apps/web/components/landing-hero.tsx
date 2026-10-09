@@ -21,6 +21,7 @@ const navItems = [
   { label: "Home", href: "/" },
   { label: "Method", href: "#method" },
   { label: "Toolkit", href: "#toolkit" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Start", href: "/dashboard" }
 ];
 
@@ -131,7 +132,7 @@ export function LandingHero() {
 
       <section data-scroll-reveal className="marketing-frame pb-20 sm:pb-28"><div className="marketing-closing relative overflow-hidden rounded-[2rem] border border-white/15 px-6 py-16 sm:px-14 sm:py-24"><div className="absolute inset-0 opacity-40 [background-image:radial-gradient(rgba(199,210,254,.4)_1px,transparent_1px)] [background-size:16px_16px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]" /><div data-reveal-piece className="relative mx-auto max-w-4xl text-center"><p className="marketing-eyebrow justify-center">Know what’s worth saying</p><h2 className="marketing-section-title mt-7 text-5xl leading-[.86] text-white sm:text-7xl">The interview starts before you walk in.</h2><p className="mx-auto mt-7 max-w-xl text-lg leading-8 text-slate-300">Bring the role. Bring the company. Cruxer helps you find the crux.</p><Link href="/register" className="marketing-cta mt-10">Start preparing <ArrowRight size={18} /></Link></div></div></section>
     </main>
-    <footer className="marketing-frame flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-8 text-xs text-indigo-100/55"><span>© {new Date().getFullYear()} Cruxer</span><div className="flex flex-wrap items-center gap-x-3 gap-y-2"><span>Interview intelligence, made personal.</span><span className="hidden h-3 w-px bg-indigo-100/20 sm:block" aria-hidden="true" /><span>Made with love by Harsh</span><a href="https://github.com/flerk3n" target="_blank" rel="noreferrer" aria-label="Harsh on GitHub" className="inline-flex items-center text-indigo-100/65 transition hover:text-white"><Github size={15} /></a></div></footer>
+    <footer className="marketing-frame flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-8 text-xs text-indigo-100/55"><div className="flex flex-wrap items-center gap-x-4 gap-y-2"><span>© {new Date().getFullYear()} Cruxer</span><Link href="/pricing" className="transition hover:text-white">Pricing</Link><Link href="/terms" className="transition hover:text-white">Terms</Link><Link href="/privacy" className="transition hover:text-white">Privacy</Link><Link href="/refunds" className="transition hover:text-white">Refunds</Link></div><div className="flex flex-wrap items-center gap-x-3 gap-y-2"><span>Interview intelligence, made personal.</span><span className="hidden h-3 w-px bg-indigo-100/20 sm:block" aria-hidden="true" /><span>Made with love by Harsh</span><a href="https://github.com/flerk3n" target="_blank" rel="noreferrer" aria-label="Harsh on GitHub" className="inline-flex items-center text-indigo-100/65 transition hover:text-white"><Github size={15} /></a></div></footer>
   </div>;
 }
 

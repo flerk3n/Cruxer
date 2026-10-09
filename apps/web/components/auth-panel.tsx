@@ -4,12 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import logoMark from "../../../logo.svg";
 import { Button } from "@/components/ui/button";
 import { FieldHint, FieldLabel, Input } from "@/components/ui/field";
 import { GlyphMatrix } from "@/components/ui/glyph-matrix";
+import { Turnstile, turnstileSiteKey, type TurnstileHandle } from "@/components/turnstile";
 import { api, apiErrorMessage } from "@/lib/api";
+import { track } from "@/lib/analytics";
 
 export function AuthPanel({ mode }: { mode: "login" | "register" }) {
   const creating = mode === "register";
@@ -17,6 +19,8 @@ export function AuthPanel({ mode }: { mode: "login" | "register" }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstile = useRef<TurnstileHandle>(null);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,15 +28,23 @@ export function AuthPanel({ mode }: { mode: "login" | "register" }) {
     const name = String(form.get("name") ?? "");
     const email = String(form.get("email") ?? "");
     const password = String(form.get("password") ?? "");
+    if (turnstileSiteKey && !turnstileToken) {
+      setError("Please complete the security check.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
+    const token = turnstileToken ?? undefined;
     try {
-      if (creating) await api.register({ name, email, password });
-      else await api.login({ email, password });
+      if (creating) await api.register({ name, email, password, turnstileToken: token });
+      else await api.login({ email, password, turnstileToken: token });
+      track(creating ? "sign_up" : "login");
       router.replace("/dashboard");
       router.refresh();
     } catch (cause) {
       setError(apiErrorMessage(cause));
+      // Turnstile tokens are single use; a failed attempt needs a fresh one.
+      turnstile.current?.reset();
     } finally {
       setSubmitting(false);
     }
@@ -46,9 +58,11 @@ export function AuthPanel({ mode }: { mode: "login" | "register" }) {
         {creating && <div><FieldLabel htmlFor="name">Name</FieldLabel><Input id="name" name="name" autoComplete="name" placeholder="Your name" required /></div>}
         <div><FieldLabel htmlFor="email">Email</FieldLabel><Input id="email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></div>
         <div><FieldLabel htmlFor="password">Password</FieldLabel><div className="relative"><Input id="password" name="password" type={passwordVisible ? "text" : "password"} autoComplete={creating ? "new-password" : "current-password"} minLength={12} placeholder="At least 12 characters" className="pr-12" required /><button type="button" onClick={() => setPasswordVisible((visible) => !visible)} className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-xl text-slate-400 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" aria-label={passwordVisible ? "Hide password" : "Show password"} aria-pressed={passwordVisible}>{passwordVisible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div>{creating && <FieldHint>Use at least 12 characters.</FieldHint>}</div>
+        <Turnstile ref={turnstile} onToken={setTurnstileToken} />
         {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger">{error}</p>}
         <Button type="submit" className="mt-2 w-full !bg-indigo-300 !text-slate-950 hover:!bg-indigo-200" disabled={submitting}>{submitting ? "Please wait…" : creating ? "Create account" : "Sign in"}<ArrowRight size={16} /></Button>
       </form>
+      {creating && <p className="mt-5 text-center text-xs leading-5 text-slate-500">By creating an account you agree to the <Link href="/terms" className="underline underline-offset-2 hover:text-slate-300">Terms</Link> and <Link href="/privacy" className="underline underline-offset-2 hover:text-slate-300">Privacy Policy</Link>.</p>}
       <p className="mt-6 text-center text-sm text-slate-400">{creating ? "Already have an account?" : "New to Cruxer?"} <Link href={creating ? "/login" : "/register"} className="font-medium text-indigo-200 underline decoration-indigo-300/40 underline-offset-4 hover:text-white">{creating ? "Sign in" : "Create an account"}</Link></p>
     </div></section>
   </main>;

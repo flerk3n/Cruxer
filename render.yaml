@@ -6,7 +6,8 @@ services:
     name: cruxer-api
     runtime: node
     region: singapore
-    plan: free
+    # Starter (not free): free instances sleep and lose in-flight generations.
+    plan: starter
     buildCommand: npm ci --include=dev && npm run typecheck --workspace=@cruxer/api
     startCommand: npm run start --workspace=@cruxer/api
     healthCheckPath: /health
@@ -32,5 +33,25 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.1-flash-lite
+      - key: GEMINI_MIN_REQUEST_INTERVAL_MS
+        value: "500"
       - key: TAVILY_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_AGENT_ID
+        sync: false
+      - key: DODO_PAYMENTS_API_KEY
+        sync: false
+      - key: DODO_PAYMENTS_WEBHOOK_KEY
+        sync: false
+      - key: DODO_PAYMENTS_ENVIRONMENT
+        value: live_mode
+      - key: DODO_PRO_PRODUCT_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
         sync: false

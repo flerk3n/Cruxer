@@ -209,6 +209,14 @@ describe("launch controls", () => {
       expect(provider.createCheckout).not.toHaveBeenCalled();
     });
 
+    it("sends a lapsed subscriber to the portal instead of opening a second subscription", async () => {
+      models.Subscription.findOne.mockReturnValue(query({ status: "on_hold", dodoSubscriptionId: "sub_live", currentPeriodStart: new Date(), currentPeriodEnd: new Date(), cancelAtPeriodEnd: false }));
+      const response = await fetch(`${baseUrl}/billing/checkout`, { method: "POST", headers: { Cookie: authCookie(baseConfig) } });
+      expect(response.status).toBe(409);
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("SUBSCRIPTION_NEEDS_ATTENTION");
+      expect(provider.createCheckout).not.toHaveBeenCalled();
+    });
+
     it("requires a verified email where verification is enforced", async () => {
       const config = { ...baseConfig, REQUIRE_EMAIL_VERIFICATION: true };
       await start(config);

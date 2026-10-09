@@ -7,12 +7,17 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldHint, FieldLabel, Input, Textarea } from "@/components/ui/field";
-import { api, apiErrorMessage, pollGenerationRun, type GenerationRun } from "@/lib/api";
+import { useAccount } from "@/components/account-provider";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
+import { api, apiErrorMessage, pollGenerationRun, quotaError, type GenerationRun, type UsageSummary } from "@/lib/api";
+import { track } from "@/lib/analytics";
+import { PRICING } from "@/lib/plans";
 
 type GenerationState = "idle" | "starting" | "polling" | "failed";
 type Submission = { companyUrl: string; days: number; descriptionLength: number };
 type StepStatus = "pending" | "running" | "complete" | "failed" | "warning";
 type DisplayStep = { name: string; status: StepStatus; message?: string };
+type QuotaNotice = { plan: string; resetsAt?: string; message: string };
 
 const plannedSteps = ["input", "research", "role", "questions", "flashcards", "coverage", "schedule", "validation"];
 const stepCopy: Record<string, { title: string; detail: string }> = {
@@ -32,6 +37,8 @@ function domain(url?: string) {
 
 export function NewKitForm() {
   const router = useRouter();
+  const { billing, refresh } = useAccount();
+  const [quota, setQuota] = useState<QuotaNotice | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [state, setState] = useState<GenerationState>("idle");
   const [run, setRun] = useState<GenerationRun | null>(null);
@@ -49,18 +56,34 @@ export function NewKitForm() {
     try {
       const result = await pollGenerationRun(runId, { signal: controller.signal, onUpdate: setRun });
       if (result.status === "ready" && result.kitId) {
+        track("kit_ready");
+        void refresh();
         router.replace(`/dashboard/kits/${result.kitId}`);
         router.refresh();
         return;
       }
       setState("failed");
+      void refresh();
       setError(result.terminalError?.message ?? (result.status === "retryable" ? "Generation needs another attempt." : "Cruxer could not complete this kit."));
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
       setState("failed");
       setError(apiErrorMessage(cause));
     }
-  }, [router]);
+  }, [router, refresh]);
+
+  function handleStartError(cause: unknown, fallbackState: GenerationState) {
+    const limit = quotaError(cause);
+    if (limit) {
+      track("quota_exceeded", { feature: limit.feature, plan: limit.plan });
+      setQuota({ plan: limit.plan, resetsAt: limit.resetsAt, message: limit.message });
+      setState("idle");
+      void refresh();
+      return;
+    }
+    setState(fallbackState);
+    setError(apiErrorMessage(cause));
+  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,17 +95,25 @@ export function NewKitForm() {
       setError("Add a job description, a valid company URL, and an interview window from 1 to 60 days.");
       return;
     }
+    if (billing && billing.usage.kits.used >= billing.usage.kits.limit) {
+      // Avoid creating a draft the server will refuse to generate.
+      track("quota_exceeded", { feature: "kits", plan: billing.usage.plan });
+      setQuota({ plan: billing.usage.plan, resetsAt: billing.usage.resetsAt, message: kitLimitMessage(billing.usage) });
+      return;
+    }
     setSubmission({ companyUrl, days, descriptionLength: jd.length });
     setState("starting");
     setError(null);
+    setQuota(null);
     setRun(null);
     try {
       const { kit } = await api.createKit({ jd, companyUrl, days });
       const { generationRun } = await api.startGeneration(kit.id);
+      track("kit_generation_started", { plan: billing?.usage.plan ?? "unknown" });
+      void refresh();
       await watchRun(generationRun.id);
     } catch (cause) {
-      setState("failed");
-      setError(apiErrorMessage(cause));
+      handleStartError(cause, "failed");
     }
   }
 
@@ -92,19 +123,27 @@ export function NewKitForm() {
     setError(null);
     try {
       const { generationRun } = await api.retryGenerationRun(run.id);
+      void refresh();
       await watchRun(generationRun.id);
     } catch (cause) {
-      setState("failed");
-      setError(apiErrorMessage(cause));
+      handleStartError(cause, "failed");
     }
   }
 
   const showProgress = state === "starting" || state === "polling" || (state === "failed" && Boolean(run));
-  return <section><PageIntro /><AnimatePresence mode="wait">{showProgress ? <GenerationRoom key="generation" state={state} run={run} submission={submission} error={error} onRetry={() => void retryRun()} /> : <KitInput key="input" busy={false} error={error} onSubmit={onSubmit} />}</AnimatePresence></section>;
+  const usage = billing?.usage;
+  return <section><PageIntro usage={usage} />{quota && <UpgradePrompt className="mt-5" source="kit_limit" title={quota.plan === "pro" ? "You've used this period's kits" : "You've used your free kits this month"} message={quota.message} resetsAt={quota.resetsAt} />}<AnimatePresence mode="wait">{showProgress ? <GenerationRoom key="generation" state={state} run={run} submission={submission} error={error} onRetry={() => void retryRun()} /> : <KitInput key="input" busy={false} error={error} onSubmit={onSubmit} />}</AnimatePresence></section>;
 }
 
-function PageIntro() {
-  return <div className="relative overflow-hidden rounded-[2rem] border bg-surface/75 px-6 py-7 shadow-[0_14px_45px_hsl(var(--ink)/0.06)] sm:px-8"><div className="workspace-grid pointer-events-none absolute inset-0 opacity-40" aria-hidden="true" /><div className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-signal/15 blur-3xl" aria-hidden="true" /><div className="relative"><p className="workspace-kicker text-xs">Your next role</p><h1 className="mt-2 text-[clamp(2rem,4vw,3.25rem)] font-semibold tracking-[-0.05em]">New preparation kit</h1><p className="mt-2 text-sm text-muted-ink">Paste the posting. Cruxer will do the reading around it.</p></div></div>;
+function kitLimitMessage(usage: UsageSummary) {
+  return usage.plan === "free"
+    ? `Free accounts include ${usage.kits.limit} kits a month. Pro includes ${PRICING.pro.kits} kits and live voice mock interviews.`
+    : `Pro includes ${usage.kits.limit} kits per billing period.`;
+}
+
+function PageIntro({ usage }: { usage?: UsageSummary }) {
+  const remaining = usage ? Math.max(0, usage.kits.limit - usage.kits.used) : null;
+  return <div className="relative overflow-hidden rounded-[2rem] border bg-surface/75 px-6 py-7 shadow-[0_14px_45px_hsl(var(--ink)/0.06)] sm:px-8"><div className="workspace-grid pointer-events-none absolute inset-0 opacity-40" aria-hidden="true" /><div className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-signal/15 blur-3xl" aria-hidden="true" /><div className="relative flex flex-wrap items-end justify-between gap-4"><div><p className="workspace-kicker text-xs">Your next role</p><h1 className="mt-2 text-[clamp(2rem,4vw,3.25rem)] font-semibold tracking-[-0.05em]">New preparation kit</h1><p className="mt-2 text-sm text-muted-ink">Paste the posting. Cruxer will do the reading around it.</p></div>{usage && remaining !== null && <p className="rounded-full border bg-surface/80 px-3 py-1.5 text-xs font-semibold text-muted-ink"><span className={remaining === 0 ? "text-warning" : "text-ink"}>{remaining}</span> of {usage.kits.limit} kits left {usage.plan === "free" ? "this month" : "this period"}</p>}</div></div>;
 }
 
 function KitInput({ busy, error, onSubmit }: { busy: boolean; error: string | null; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {

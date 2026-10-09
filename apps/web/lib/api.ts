@@ -25,7 +25,7 @@ type ApiErrorBody = {
   error?: { code?: string; message?: string; requestId?: string; details?: unknown };
 };
 
-export type User = { id: string; name: string; email: string; createdAt: string };
+export type User = { id: string; name: string; email: string; emailVerified: boolean; createdAt: string };
 export type AuthResponse = { user: User };
 export type KitStatus = "draft" | "generating" | "ready" | "failed";
 export type KitSummary = {
@@ -112,9 +112,35 @@ export type MockInterviewSession = {
   startedAt?: string;
   endedAt?: string;
   failure?: { code: string; message: string };
+  /** Session ceiling granted from the user's remaining Pro minutes. */
+  maxDurationSeconds?: number;
+  billedSeconds?: number;
   createdAt: string;
   updatedAt: string;
 };
+export type PlanId = "free" | "pro";
+export type PublicPlan = {
+  id: PlanId;
+  name: string;
+  priceUsdMonthly: number;
+  kitsPerPeriod: number;
+  mockMinutesPerPeriod: number;
+  maxMockSessionMinutes: number;
+  regenerationsPerKit: number;
+};
+export type UsageSummary = {
+  plan: PlanId;
+  periodStart: string;
+  resetsAt: string;
+  kits: { used: number; limit: number };
+  mockSeconds: { used: number; reserved: number; limit: number };
+  regenerationsPerKit: number;
+  maxMockSessionSeconds: number;
+  subscription?: { status: string; currentPeriodEnd: string; cancelAtPeriodEnd: boolean };
+};
+export type BillingOverview = { billingEnabled: boolean; plans: PublicPlan[]; usage: UsageSummary };
+/** Structured details the API attaches to QUOTA_EXCEEDED and PLAN_REQUIRED errors. */
+export type QuotaErrorDetails = { feature: "kits" | "mock_minutes" | "mock_interview" | "regenerations"; plan: PlanId; limit?: number; used?: number; resetsAt?: string };
 /** Server-backed practice summary for one flashcard. Historical events are not fabricated. */
 export type PracticeProgress = {
   flashcardId: string;
@@ -215,8 +241,13 @@ function patch(body: unknown): RequestInit {
 }
 
 export const api = {
-  register: (input: { name: string; email: string; password: string }) => request<AuthResponse>("/auth/register", json(input)),
-  login: (input: { email: string; password: string }) => request<AuthResponse>("/auth/login", json(input)),
+  register: (input: { name: string; email: string; password: string; turnstileToken?: string }) => request<AuthResponse>("/auth/register", json(input)),
+  login: (input: { email: string; password: string; turnstileToken?: string }) => request<AuthResponse>("/auth/login", json(input)),
+  verifyEmail: (token: string) => request<{ verified: true }>("/auth/verify-email", json({ token })),
+  resendVerification: () => request<{ sent: boolean; alreadyVerified?: boolean }>("/auth/resend-verification", { method: "POST" }),
+  getBilling: () => request<BillingOverview>("/billing/me"),
+  startCheckout: () => request<{ checkoutUrl: string }>("/billing/checkout", { method: "POST" }),
+  openBillingPortal: () => request<{ url: string }>("/billing/portal", { method: "POST" }),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   session: () => request<AuthResponse>("/auth/session"),
   listKits: () => request<{ kits: KitSummary[] }>("/kits"),
@@ -230,7 +261,7 @@ export const api = {
   createKit: (input: CreateKitInput) => request<{ kit: { id: string } }>("/kits", json(input)),
   getKit: (kitId: string) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}`),
   getMockInterviews: (kitId: string) => request<{ sessions: MockInterviewSession[] }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`),
-  startMockInterview: (kitId: string, questionCount = 5) => request<{ session: MockInterviewSession; signedUrl: string; dynamicVariables: Record<string, string>; userId: string }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`, json({ questionCount })),
+  startMockInterview: (kitId: string, questionCount = 5) => request<{ session: MockInterviewSession; signedUrl: string; dynamicVariables: Record<string, string>; userId: string; maxDurationSeconds: number }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews`, json({ questionCount })),
   markMockInterviewConnected: (kitId: string, sessionId: string, providerConversationId: string) => request<{ session: MockInterviewSession }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews/${encodeURIComponent(sessionId)}/connected`, json({ providerConversationId })),
   endMockInterview: (kitId: string, sessionId: string) => request<{ session: MockInterviewSession }>(`/kits/${encodeURIComponent(kitId)}/mock-interviews/${encodeURIComponent(sessionId)}/end`, { method: "POST" }),
   updateCompanyBrief: (kitId: string, revision: number, changes: Partial<Pick<PersistedKit["company_brief"], "summary" | "what_they_do">>) => request<{ kit: KitDocument }>(`/kits/${encodeURIComponent(kitId)}/company-brief`, patch({ revision, ...changes })),
@@ -258,6 +289,17 @@ export const api = {
 
 export function isUnauthenticated(error: unknown): boolean {
   return error instanceof CruxerApiError && error.status === 401;
+}
+
+/** Plan/quota refusals the UI answers with an upgrade or reset message rather than a generic error. */
+export function quotaError(error: unknown): (QuotaErrorDetails & { code: "QUOTA_EXCEEDED" | "PLAN_REQUIRED"; message: string }) | undefined {
+  if (!(error instanceof CruxerApiError) || (error.code !== "QUOTA_EXCEEDED" && error.code !== "PLAN_REQUIRED")) return undefined;
+  const details = (error.details ?? {}) as Partial<QuotaErrorDetails>;
+  return { code: error.code, message: error.message, feature: details.feature ?? "kits", plan: details.plan ?? "free", limit: details.limit, used: details.used, resetsAt: details.resetsAt };
+}
+
+export function isEmailNotVerified(error: unknown): boolean {
+  return error instanceof CruxerApiError && error.code === "EMAIL_NOT_VERIFIED";
 }
 
 export function apiErrorMessage(error: unknown): string {

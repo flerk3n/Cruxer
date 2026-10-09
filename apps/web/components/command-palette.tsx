@@ -1,6 +1,6 @@
 "use client";
 
-import { Command, LayoutDashboard, Plus, BookOpenCheck, Settings, Search, X } from "lucide-react";
+import { Command, CreditCard, LayoutDashboard, Plus, BookOpenCheck, Settings, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -11,6 +11,7 @@ const actions = [
   { label: "Open dashboard", hint: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Create a new kit", hint: "New kit", href: "/dashboard/new", icon: Plus },
   { label: "Choose a practice kit", hint: "Practice", href: "/dashboard/practice", icon: BookOpenCheck },
+  { label: "View plan and usage", hint: "Billing", href: "/dashboard/billing", icon: CreditCard },
   { label: "Open settings", hint: "Settings", href: "/dashboard/settings", icon: Settings }
 ];
 

@@ -5,6 +5,7 @@ import type { AppConfig } from "../config/env.js";
 import { GenerationRun, type GenerationRunRecord } from "../db/models/generation-run.js";
 import { ApiError } from "../lib/errors.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
 import { type GenerationOrchestrator } from "../services/generation-orchestrator.js";
 
 const runIdSchema = z.string().refine(isValidObjectId, "Generation run id is invalid.");
@@ -26,7 +27,7 @@ export function createGenerationRunsRouter(config: AppConfig, generation: Genera
     }
   });
 
-  router.post("/:runId/retry", async (req, res, next) => {
+  router.post("/:runId/retry", requireVerifiedEmail(config), async (req, res, next) => {
     try {
       const runId = runIdSchema.parse(req.params.runId);
       const generationRun = await generation.retry(req.auth!.userId, runId);

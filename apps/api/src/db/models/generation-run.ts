@@ -12,6 +12,8 @@ export interface GenerationRunRecord {
   warnings: Array<{ code: string; message: string; step?: string }>;
   retryCount: number;
   terminalError?: { code: string; message: string };
+  /** Quota consumed by this attempt. Refunded once if the attempt does not produce a kit. */
+  charge?: { kind: "kit" | "regeneration"; refId: string; periodKey?: string; refunded: boolean };
   regeneration?: { section: "questions" | "flashcards" | "company-brief" | "schedule"; category?: "technical" | "behavioural" | "system-design" | "company-fit" };
   createdAt: Date;
   updatedAt: Date;
@@ -43,6 +45,15 @@ const generationRunSchema = new Schema<GenerationRunRecord>(
     warnings: { type: [{ code: String, message: String, step: String }], default: [] },
     retryCount: { type: Number, required: true, default: 0, min: 0 },
     terminalError: { type: { code: String, message: String }, required: false },
+    charge: {
+      type: new Schema({
+        kind: { type: String, enum: ["kit", "regeneration"], required: true },
+        refId: { type: String, required: true, maxlength: 160 },
+        periodKey: { type: String, maxlength: 200 },
+        refunded: { type: Boolean, required: true, default: false }
+      }, { _id: false, strict: "throw" }),
+      required: false
+    },
     regeneration: {
       section: { type: String, enum: ["questions", "flashcards", "company-brief", "schedule"] },
       category: { type: String, enum: ["technical", "behavioural", "system-design", "company-fit"] }

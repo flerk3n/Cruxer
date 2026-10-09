@@ -21,6 +21,8 @@ export interface KitRecord {
   revision: number;
   inputHash: string;
   editor?: BuilderEditorState;
+  /** Fair-use counter for section regenerations; each one re-runs the full pipeline. */
+  regenerationCount?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -39,7 +41,8 @@ const kitSchema = new Schema<KitRecord>(
     generationRunId: { type: Schema.Types.ObjectId, ref: "GenerationRun" },
     revision: { type: Number, required: true, default: 0, min: 0 },
     inputHash: { type: String, required: true, index: true },
-    editor: { type: Schema.Types.Mixed, default: () => ({ questions: {} }) }
+    editor: { type: Schema.Types.Mixed, default: () => ({ questions: {} }) },
+    regenerationCount: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true, versionKey: false, strict: "throw" }
 );

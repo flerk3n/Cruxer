@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isValidObjectId } from "mongoose";
 import { z } from "zod";
+import { reserveMockSeconds, resolvePlan, settleMockSession } from "../billing/entitlements.js";
 import type { AppConfig } from "../config/env.js";
 import { Kit, type KitRecord } from "../db/models/kit.js";
 import { MockInterviewSession, type MockInterviewSessionRecord } from "../db/models/mock-interview-session.js";
@@ -8,6 +9,7 @@ import { ApiError } from "../lib/errors.js";
 import { persistedKitSchema, type PersistedKitPayload } from "../lib/kit-validation.js";
 import { requireAuth } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
+import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
 import { createElevenLabsSignedUrl } from "../services/elevenlabs.js";
 import { collectMockInterviewTranscript } from "../services/mock-interview-transcript.js";
 
@@ -31,10 +33,14 @@ export function createMockInterviewsRouter(config: AppConfig): Router {
     } catch (error) { next(error); }
   });
 
-  router.post("/", rateLimit({ windowMs: 60_000, max: 8, keyPrefix: "mock-interview-start" }), async (req, res, next) => {
+  router.post("/", rateLimit({ windowMs: 60_000, max: 8, keyPrefix: "mock-interview-start" }), requireVerifiedEmail(config), async (req, res, next) => {
     try {
       const kitId = kitIdSchema.parse((req.params as { kitId?: string }).kitId);
       const { questionCount } = startSchema.parse(req.body ?? {});
+      const { limits, plan } = await resolvePlan(req.auth!.userId, config);
+      if (limits.mockSecondsPerPeriod === 0) {
+        throw new ApiError(403, "PLAN_REQUIRED", "Live mock interviews are part of Cruxer Pro.", { feature: "mock_interview", plan });
+      }
       const kit = await Kit.findOne({ _id: kitId, ownerId: req.auth!.userId }).lean() as KitWithId | null;
       if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
       if (!kit.kit || kit.status !== "ready") throw new ApiError(409, "KIT_NOT_READY", "Generate this kit before starting a mock interview.");
@@ -49,17 +55,33 @@ export function createMockInterviewsRouter(config: AppConfig): Router {
         status: "created"
       }) as SessionWithId;
 
+      // Voice minutes are reserved before the provider is contacted and settled to the real call length later.
+      let reservation: Awaited<ReturnType<typeof reserveMockSeconds>>;
+      try {
+        reservation = await reserveMockSeconds(req.auth!.userId, session._id.toString(), config);
+      } catch (error) {
+        await MockInterviewSession.deleteOne({ _id: session._id, status: "created" });
+        throw error;
+      }
+      const reserved = await MockInterviewSession.findByIdAndUpdate(
+        session._id,
+        { $set: { periodKey: reservation.periodKey, reservedSeconds: reservation.seconds, maxDurationSeconds: reservation.seconds } },
+        { new: true }
+      ).lean() as SessionWithId | null;
+
       try {
         const signedUrl = await createElevenLabsSignedUrl(config);
         res.status(201).json({
-          session: serializeMockInterviewSession(session),
+          session: serializeMockInterviewSession(reserved ?? session),
           signedUrl,
           dynamicVariables: buildDynamicVariables(payload, selectedQuestions),
-          userId: session._id.toString()
+          userId: session._id.toString(),
+          maxDurationSeconds: reservation.seconds
         });
       } catch (error) {
         const failure = error instanceof ApiError ? { code: error.code, message: error.message } : { code: "ELEVENLABS_SIGNING_FAILED", message: "Cruxer could not start this interview." };
         await MockInterviewSession.findByIdAndUpdate(session._id, { $set: { status: "failed", failure } });
+        await settleMockSession(session._id.toString(), null);
         throw error;
       }
     } catch (error) { next(error); }
@@ -134,6 +156,8 @@ export function serializeMockInterviewSession(session: SessionWithId) {
     ...(session.startedAt ? { startedAt: session.startedAt.toISOString() } : {}),
     ...(session.endedAt ? { endedAt: session.endedAt.toISOString() } : {}),
     ...(session.failure ? { failure: session.failure } : {}),
+    ...(session.maxDurationSeconds !== undefined ? { maxDurationSeconds: session.maxDurationSeconds } : {}),
+    ...(session.billedSeconds !== undefined ? { billedSeconds: session.billedSeconds } : {}),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString()
   };

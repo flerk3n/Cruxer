@@ -48,7 +48,9 @@ const config: AppConfig = {
   JWT_TTL_DAYS: 7,
   BCRYPT_ROUNDS: 10,
   COOKIE_NAME: "cruxer_session",
-  WEB_ORIGIN: "http://localhost:3000"
+  WEB_ORIGIN: "http://localhost:3000",
+  DODO_PAYMENTS_ENVIRONMENT: "test_mode",
+  EMAIL_FROM: "Cruxer <test@example.com>"
 };
 
 function query<T>(value: T) {

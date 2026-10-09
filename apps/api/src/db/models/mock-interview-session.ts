@@ -26,6 +26,13 @@ export interface MockInterviewSessionRecord {
   startedAt?: Date;
   endedAt?: Date;
   failure?: { code: string; message: string };
+  /** Usage period the reserved voice seconds were taken from. */
+  periodKey?: string;
+  reservedSeconds?: number;
+  /** Client-enforced session ceiling; the ElevenLabs agent max duration is the provider cap. */
+  maxDurationSeconds?: number;
+  /** Set exactly once when the reservation is settled or released. */
+  billedSeconds?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,7 +69,11 @@ const mockInterviewSessionSchema = new Schema<MockInterviewSessionRecord>(
     },
     startedAt: Date,
     endedAt: Date,
-    failure: { code: { type: String, maxlength: 100 }, message: { type: String, maxlength: 500 } }
+    failure: { code: { type: String, maxlength: 100 }, message: { type: String, maxlength: 500 } },
+    periodKey: { type: String, maxlength: 200 },
+    reservedSeconds: { type: Number, min: 0 },
+    maxDurationSeconds: { type: Number, min: 0 },
+    billedSeconds: { type: Number, min: 0 }
   },
   { timestamps: true, versionKey: false, strict: "throw" }
 );

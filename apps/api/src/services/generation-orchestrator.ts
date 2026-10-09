@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { Types } from "mongoose";
 import type { KitPipeline, PipelineStep } from "../../../../packages/pipeline/src/index.js";
 import { PipelineError } from "../../../../packages/pipeline/src/index.js";
 import { GenerationRun, type GenerationRunRecord } from "../db/models/generation-run.js";
 import { Kit, type KitRecord } from "../db/models/kit.js";
+import { refundKit, reserveKit, resolvePlan } from "../billing/entitlements.js";
+import type { AppConfig } from "../config/env.js";
 import { ApiError } from "../lib/errors.js";
 import { mergeRegeneratedSection, normalizeEditor } from "../lib/builder.js";
 import { persistedKitSchema } from "../lib/kit-validation.js";
@@ -17,7 +20,10 @@ const retryableCodes = new Set(["COMPANY_UNREACHABLE", "HTTP_ERROR", "GENERATION
  * injected so HTTP tests never invoke Gemini, crawling, or other external I/O.
  */
 export class GenerationOrchestrator {
-  constructor(private readonly pipeline: KitPipeline) {}
+  constructor(
+    private readonly pipeline: KitPipeline,
+    private readonly config: Pick<AppConfig, "NODE_ENV" | "DEV_GRANT_PRO">
+  ) {}
 
   async start(ownerId: string, kitId: string): Promise<{ id: string; kitId: string }> {
     const kit = await Kit.findOne({ _id: kitId, ownerId }).select("generationInput status").lean();
@@ -38,22 +44,27 @@ export class GenerationOrchestrator {
     kitId: string,
     request: { revision: number; section: "questions" | "flashcards" | "company-brief" | "schedule"; category?: "technical" | "behavioural" | "system-design" | "company-fit" }
   ): Promise<{ kit: KitRecord & { _id: { toString(): string } }; generationRun: { id: string; kitId: string } }> {
-    const kit = await Kit.findOne({ _id: kitId, ownerId }).select("generationInput status revision kit").lean();
+    const kit = await Kit.findOne({ _id: kitId, ownerId }).select("generationInput status revision kit regenerationCount").lean();
     if (!kit) throw new ApiError(404, "KIT_NOT_FOUND", "The requested kit was not found.");
     if (!kit.kit || !kit.generationInput) throw new ApiError(409, "KIT_NOT_READY", "Generate this kit before regenerating a section.");
     if (kit.status === "generating") throw new ApiError(409, "GENERATION_IN_PROGRESS", "This kit is already being generated.");
     if (kit.revision !== request.revision) throw new ApiError(409, "REVISION_CONFLICT", "This kit has changed. Reload it before regenerating.");
+    const { plan, limits } = await resolvePlan(ownerId, this.config);
+    if ((kit.regenerationCount ?? 0) >= limits.regenerationsPerKit) throw regenerationLimitError(plan, limits.regenerationsPerKit);
 
     const inputHash = hashInput(kit.generationInput);
     const active = await GenerationRun.exists({ ownerId, inputHash, status: { $in: ["queued", "running"] } });
     if (active) throw new ApiError(409, "GENERATION_IN_PROGRESS", "An identical generation request is already in progress.");
+    const runId = new Types.ObjectId();
     const run = await GenerationRun.create({
-      ownerId, kitId, inputHash, input: kit.generationInput, status: "queued", steps: initialSteps(), warnings: [], retryCount: 0,
+      _id: runId, ownerId, kitId, inputHash, input: kit.generationInput, status: "queued", steps: initialSteps(), warnings: [], retryCount: 0,
+      charge: { kind: "regeneration", refId: `${runId.toString()}:0`, refunded: false },
       regeneration: { section: request.section, ...(request.category ? { category: request.category } : {}) }
     });
+    // The fair-use cap is part of the reservation predicate so parallel requests cannot exceed it.
     const reservedKit = await Kit.findOneAndUpdate(
-      { _id: kitId, ownerId, revision: request.revision, status: { $ne: "generating" } },
-      { $set: { status: "generating", generationRunId: run._id, inputHash }, $inc: { revision: 1 } },
+      { _id: kitId, ownerId, revision: request.revision, status: { $ne: "generating" }, ...regenerationCapFilter(limits.regenerationsPerKit) },
+      { $set: { status: "generating", generationRunId: run._id, inputHash }, $inc: { revision: 1, regenerationCount: 1 } },
       { new: true, runValidators: true }
     );
     if (!reservedKit) {
@@ -75,24 +86,37 @@ export class GenerationOrchestrator {
     const active = await GenerationRun.exists({ ownerId, inputHash: run.inputHash, status: { $in: ["queued", "running"] } });
     if (active) throw new ApiError(409, "GENERATION_IN_PROGRESS", "An identical generation request is already in progress.");
 
+    // The failed attempt was refunded, so a retry is charged like a new attempt.
+    const isRegeneration = scopedRegeneration(run.regeneration) !== undefined;
+    const refId = `${run._id.toString()}:${run.retryCount + 1}`;
+    const { plan, limits } = await resolvePlan(ownerId, this.config);
+    const kitCharge = isRegeneration ? undefined : await reserveKit(ownerId, refId, this.config);
+    const charge = { kind: isRegeneration ? "regeneration" as const : "kit" as const, refId, ...(kitCharge ? { periodKey: kitCharge.periodKey } : {}), refunded: false };
+    const releaseKitCharge = async () => { if (kitCharge) await refundKit(ownerId, refId, kitCharge.periodKey); };
+
     const queued = await GenerationRun.findOneAndUpdate(
       { _id: run._id, ownerId, status: { $in: ["failed", "retryable"] } },
       {
-        $set: { status: "queued", steps: initialSteps(), warnings: [] },
+        $set: { status: "queued", steps: initialSteps(), warnings: [], charge },
         $unset: { terminalError: 1 },
         $inc: { retryCount: 1 }
       },
       { new: true, runValidators: true }
     );
-    if (!queued) throw new ApiError(409, "GENERATION_NOT_RETRYABLE", "This generation run cannot be retried.");
+    if (!queued) {
+      await releaseKitCharge();
+      throw new ApiError(409, "GENERATION_NOT_RETRYABLE", "This generation run cannot be retried.");
+    }
 
     const reservedKit = await Kit.findOneAndUpdate(
-      { _id: queued.kitId, ownerId, status: { $ne: "generating" } },
-      { $set: { status: "generating", generationRunId: queued._id } },
+      { _id: queued.kitId, ownerId, status: { $ne: "generating" }, ...(isRegeneration ? regenerationCapFilter(limits.regenerationsPerKit) : {}) },
+      { $set: { status: "generating", generationRunId: queued._id }, ...(isRegeneration ? { $inc: { regenerationCount: 1 } } : {}) },
       { new: true, runValidators: true }
     );
     if (!reservedKit) {
-      await GenerationRun.updateOne({ _id: queued._id, status: "queued" }, { $set: { status: "failed", terminalError: { code: "KIT_UNAVAILABLE", message: "The kit could not be reserved for generation." } } });
+      await GenerationRun.updateOne({ _id: queued._id, status: "queued" }, { $set: { status: "failed", "charge.refunded": true, terminalError: { code: "KIT_UNAVAILABLE", message: "The kit could not be reserved for generation." } } });
+      await releaseKitCharge();
+      if (isRegeneration && await Kit.exists({ _id: queued.kitId, ownerId, status: { $ne: "generating" } })) throw regenerationLimitError(plan, limits.regenerationsPerKit);
       throw new ApiError(409, "GENERATION_IN_PROGRESS", "This kit is already being generated.");
     }
 
@@ -107,10 +131,19 @@ export class GenerationOrchestrator {
       throw new ApiError(409, "GENERATION_IN_PROGRESS", "An identical generation request is already in progress.", { generationRunId: existing._id.toString(), kitId: existing.kitId?.toString() });
     }
 
+    // Charge before any provider work; every exit path below that does not start a run refunds it.
+    const runId = new Types.ObjectId();
+    const refId = `${runId.toString()}:0`;
+    const { periodKey } = await reserveKit(ownerId, refId, this.config);
+
     let run: GenerationRunRecord & { _id: { toString(): string } };
     try {
-      run = await GenerationRun.create({ ownerId, kitId, inputHash, input, status: "queued", steps: initialSteps(), warnings: [], retryCount: 0 });
+      run = await GenerationRun.create({
+        _id: runId, ownerId, kitId, inputHash, input, status: "queued", steps: initialSteps(), warnings: [], retryCount: 0,
+        charge: { kind: "kit", refId, periodKey, refunded: false }
+      });
     } catch (error) {
+      await refundKit(ownerId, refId, periodKey);
       if (isDuplicateKeyError(error)) {
         throw new ApiError(409, "GENERATION_IN_PROGRESS", "An identical generation request is already in progress.");
       }
@@ -124,6 +157,7 @@ export class GenerationOrchestrator {
     );
     if (!reservedKit) {
       await GenerationRun.deleteOne({ _id: run._id, status: "queued" });
+      await refundKit(ownerId, refId, periodKey);
       throw new ApiError(409, "GENERATION_IN_PROGRESS", "This kit is already being generated.");
     }
 
@@ -181,6 +215,27 @@ export class GenerationOrchestrator {
         { $set: { status: "failed" } }
       );
       await this.failCurrentStep(runId, failure.message);
+      // Once the kit is saved the user received it, so only earlier failures are refunded.
+      if (stage !== "marking-run-ready") await this.refundCharge(runId);
+    }
+  }
+
+  /**
+   * Users never pay for an attempt that did not produce a kit. The `charge.refunded`
+   * flag is claimed atomically, so a refund happens at most once per attempt even if
+   * the failure path and the stuck-run sweeper race.
+   */
+  async refundCharge(runId: string): Promise<void> {
+    const run = await GenerationRun.findOneAndUpdate(
+      { _id: runId, "charge.refunded": false },
+      { $set: { "charge.refunded": true } },
+      { new: false }
+    ).select("ownerId kitId charge").lean();
+    if (!run?.charge) return;
+    if (run.charge.kind === "kit" && run.charge.periodKey) {
+      await refundKit(run.ownerId.toString(), run.charge.refId, run.charge.periodKey);
+    } else if (run.charge.kind === "regeneration" && run.kitId) {
+      await Kit.updateOne({ _id: run.kitId, regenerationCount: { $gt: 0 } }, { $inc: { regenerationCount: -1 } });
     }
   }
 
@@ -221,6 +276,17 @@ export class GenerationOrchestrator {
     const current = run?.steps.find((step) => step.status === "running") ?? run?.steps.find((step) => step.status === "pending");
     if (current) await this.recordStep(runId, { step: current.name as PipelineStep, status: "failed", message });
   }
+}
+
+function regenerationCapFilter(limit: number) {
+  // Kits created before the fair-use counter existed have no regenerationCount yet.
+  return { $or: [{ regenerationCount: { $lt: limit } }, { regenerationCount: { $exists: false } }] };
+}
+
+function regenerationLimitError(plan: string, limit: number): ApiError {
+  return new ApiError(402, "QUOTA_EXCEEDED", plan === "free"
+    ? `Free kits can be regenerated ${limit} times. Upgrade to Pro for more regenerations, or create a new kit.`
+    : `This kit has reached its ${limit} regenerations. Create a new kit to start fresh.`, { feature: "regenerations", plan, limit, used: limit });
 }
 
 function initialSteps() {

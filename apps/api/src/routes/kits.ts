@@ -20,6 +20,7 @@ import {
   calendarDayAt
 } from "../lib/study-activity.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
 import { type GenerationInput, type GenerationOrchestrator } from "../services/generation-orchestrator.js";
 
 const kitIdSchema = z.string().refine(isValidObjectId, "Kit id is invalid.");
@@ -307,7 +308,7 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
     } catch (error) { next(error); }
   });
 
-  router.post("/:kitId/regenerate", async (req, res, next) => {
+  router.post("/:kitId/regenerate", requireVerifiedEmail(config), async (req, res, next) => {
     try {
       const kitId = kitIdSchema.parse(req.params.kitId);
       const request = regenerateSchema.parse(req.body);
@@ -392,7 +393,7 @@ export function createKitsRouter(config: AppConfig, generation: GenerationOrches
     } catch (error) { next(error); }
   });
 
-  router.post("/:kitId/generate", async (req, res, next) => {
+  router.post("/:kitId/generate", requireVerifiedEmail(config), async (req, res, next) => {
     try {
       const kitId = kitIdSchema.parse(req.params.kitId);
       const generationRun = await generation.start(req.auth!.userId, kitId);
